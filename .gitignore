@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+evidence/
+harness/artifacts/
+harness/baselines/*.png
+node_modules/
+.env

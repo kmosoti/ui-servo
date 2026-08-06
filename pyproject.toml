@@ -1,0 +1,30 @@
+[project]
+name = "ui-servo"
+version = "0.1.0"
+description = "Tiered feedback loop for agent-generated UI: deterministic gates for correctness, cross-family model panel for critique, quality-diversity sampling for taste"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "nh3>=0.2",            # Rust (ammonia) HTML sanitizer — Tier 0
+    "orjson>=3.10",        # Rust JSON — evidence store + beacon ingest
+    "pydantic>=2.9",       # pydantic-core is Rust
+    "httpx>=0.27",         # model adapters (Gemini/GPT REST)
+    "anthropic>=0.40",     # Claude adapter
+    "playwright>=1.49",    # Tier 2 harness
+    "pillow>=11.0",        # pixel diff (C-backed)
+    "tinycss2>=1.4",       # CSS token parsing for class allowlist build
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ui_servo"]

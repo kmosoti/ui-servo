@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["unit", "critical", "minor", "summary"],
+  "properties": {
+    "unit": { "type": "string" },
+    "summary": { "type": "string" },
+    "critical": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "finding", "why_it_breaks"],
+        "properties": {
+          "file": { "type": "string" },
+          "finding": { "type": "string" },
+          "why_it_breaks": { "type": "string" }
+        }
+      }
+    },
+    "minor": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "finding"],
+        "properties": {
+          "file": { "type": "string" },
+          "finding": { "type": "string" }
+        }
+      }
+    }
+  }
+}

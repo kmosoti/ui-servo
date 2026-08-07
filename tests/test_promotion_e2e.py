@@ -188,6 +188,56 @@ class TestTheStaticRootCannotServeAPick:
         assert "data-fragment=\"promoted-hero\"" in body
 
 
+class TestTheTwoSidesAgreeOnAGrammar:
+    """Every round id the Python writer accepts, the Rust server must read.
+
+    This contract has drifted twice, in opposite directions, and both times the
+    symptom was silent. The reader terminated a value at `-`, so `round-4` was
+    read as `round` — a promotion that served fine while misreporting its own
+    origin. Removing `-` from the terminator set then broke ids *ending* in one,
+    because the value swallowed the closing `-->`.
+
+    The fix was to stop scanning for terminators and parse the line by its three
+    known literals. This test is the reason to keep it that way: it exercises the
+    writer's whole documented grammar (`[A-Za-z0-9._-]{1,64}`) against the real
+    binary, so any future disagreement fails here instead of in a deploy.
+    """
+
+    @pytest.mark.parametrize(
+        "round_id",
+        ["4", "round-4", "4.1", "a_b", "R-2026.08.07", "1-2-3", "--", "a--b", "x" * 64],
+    )
+    def test_the_server_reads_back_every_round_id_the_writer_permits(
+        self, round_id: str, hero_file: Path
+    ) -> None:
+        from ui_servo.control.promote import _SAFE_TOKEN, promote
+        from ui_servo.ports.sanitizer import SanitizeResult
+
+        class _Accepting:
+            def check(self, fragment_html: str) -> SanitizeResult:
+                return SanitizeResult(accepted=True, cleaned_html=fragment_html, violations=())
+
+        assert _SAFE_TOKEN.match(round_id), "the writer would reject this; fix the case"
+        body = hero_file.read_text().partition("\n")[2]
+        promote(
+            body,
+            part="hero",
+            round_id=round_id,
+            sanitizer=_Accepting(),
+            fragments_dir=hero_file.parent,
+        )
+
+        with _server(dev=False) as (process, port):
+            assert process.poll() is None, (
+                f"the server refused to start on round_id={round_id!r}: "
+                + (process.stderr.read() if process.stderr else "")
+            )
+            status, served = _get(port, "/fragments/promoted/hero")
+        assert status == 200
+        # The label echoes what the reader parsed, so a truncated round shows up.
+        assert f"round {round_id})" in served, served[:200]
+
+
 class TestTamperingIsRefused:
     """Each of these is a row of the promotion table in `demo/README.md`."""
 

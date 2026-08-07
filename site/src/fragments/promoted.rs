@@ -40,6 +40,11 @@ use tracing::warn;
 pub const PROMOTED_DIR: &str = "promoted";
 
 const PROVENANCE_PREFIX: &str = "<!-- ui-servo: gated";
+/// The provenance line, split into the three literals around its two values.
+/// Mirrors `PROVENANCE_TEMPLATE` in `ui_servo/control/promote.py`.
+const PROVENANCE_HEAD: &str = "<!-- ui-servo: gated round=";
+const PROVENANCE_MID: &str = " sha256=";
+const PROVENANCE_TAIL: &str = " -->";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PromotionError {
@@ -119,35 +124,27 @@ fn promoted_path(root: &Path, part: &str) -> Result<PathBuf, PromotionError> {
     Ok(root.join(PROMOTED_DIR).join(format!("{part}.html")))
 }
 
-/// Read the provenance comment's `round=` and `sha256=` values, if both are there.
-fn parse_provenance(markup: &str) -> Option<(String, String)> {
-    let line = markup
-        .lines()
-        .find(|line| line.trim_start().starts_with(PROVENANCE_PREFIX))?;
-    let round = field(line, "round=")?;
-    let sha = field(line, "sha256=")?;
-    Some((round, sha))
-}
-
-/// One `key=value` out of the provenance comment.
+/// Read the provenance comment, which must be exactly what the promoter writes.
 ///
-/// The terminator set matters more than it looks. It used to include `-`, to
-/// stop the value swallowing the comment's closing `-->`; the cost was that
-/// `round=round-4` parsed as `round`, because the writer's grammar
-/// (`[A-Za-z0-9._-]`) permits hyphens and this reader did not. The two sides
-/// disagreed about what a round id *is*, silently, and the truncated value was
-/// then cached and reported as the fragment's origin.
+/// Parsed by stripping the three known literals rather than by scanning for
+/// `key=` and guessing where each value ends. Scanning needed a terminator set,
+/// and every terminator set was wrong for some value the *writer* permits: with
+/// `-` in it, `round=round-4` silently became `round`; without it, an id ending
+/// in `-` swallowed the closing `-->`. The writer's grammar is
+/// `[A-Za-z0-9._-]{1,64}` and this reader now accepts exactly that, because the
+/// two sides disagreeing about what a round id is has already caused one bug.
 ///
-/// So the value runs to whitespace or `>`, and the closing `-->` is trimmed
-/// afterwards — a hyphen is only a terminator when it is the comment's.
-fn field(line: &str, key: &str) -> Option<String> {
-    let rest = &line[line.find(key)? + key.len()..];
-    let value: &str = rest
-        .split(|c: char| c.is_whitespace() || c == '>')
-        .next()
-        .unwrap_or("");
-    let value = value.trim_end_matches("--").trim_end_matches('-');
-    (!value.is_empty()).then(|| value.to_owned())
+/// Matching the whole line is also what pins the metadata. The SHA-256 covers
+/// the body, so without this, `round=4` could be edited to `round=99` and every
+/// other check would still pass — the file would serve, and lie about where it
+/// came from.
+fn parse_provenance(line: &str) -> Option<(String, String)> {
+    let inner = line
+        .trim()
+        .strip_prefix(PROVENANCE_HEAD)?
+        .strip_suffix(PROVENANCE_TAIL)?;
+    let (round, sha) = inner.split_once(PROVENANCE_MID)?;
+    (!round.is_empty() && !sha.is_empty()).then(|| (round.to_owned(), sha.to_owned()))
 }
 
 /// The body a hash covers: everything after the provenance line. The comment
@@ -175,29 +172,27 @@ pub fn load(root: &Path, part: &str) -> Result<Promoted, PromotionError> {
     let raw = fs::read_to_string(&path)
         .map_err(|error| PromotionError::Unreadable(part.to_owned(), error.to_string()))?;
 
-    let (round, recorded) =
-        parse_provenance(&raw).ok_or_else(|| PromotionError::MissingProvenance(part.to_owned()))?;
+    let header = raw.lines().next().unwrap_or_default().trim();
+    let (round, recorded) = match parse_provenance(header) {
+        Some(parsed) => parsed,
+        // Nothing that even looks like provenance: hand-dropped or half-copied.
+        None if !header.starts_with(PROVENANCE_PREFIX) => {
+            return Err(PromotionError::MissingProvenance(part.to_owned()));
+        }
+        // It looks like provenance and is not: an edited or hand-built comment.
+        None => {
+            return Err(PromotionError::ForgedProvenance(
+                part.to_owned(),
+                header.to_owned(),
+            ));
+        }
+    };
     let actual = sha256_of(hashed_body(&raw));
     if actual != recorded {
         return Err(PromotionError::HashMismatch(
             part.to_owned(),
             recorded,
             actual,
-        ));
-    }
-    // The hash covers the body, so the *metadata* is the one part of the file an
-    // editor could still rewrite unnoticed: change `round=4` to `round=99` and
-    // every check above still passes. It cannot be folded into the digest (a
-    // comment cannot hash itself), so instead the line is required to be exactly
-    // what the writer would emit for this round and this body. Anything else —
-    // an extra attribute, a reordered field, a doctored round — is a file nobody
-    // promoted.
-    let canonical = format!("<!-- ui-servo: gated round={round} sha256={recorded} -->");
-    let header = raw.lines().next().unwrap_or_default().trim();
-    if header != canonical {
-        return Err(PromotionError::ForgedProvenance(
-            part.to_owned(),
-            header.to_owned(),
         ));
     }
     Ok(Promoted {

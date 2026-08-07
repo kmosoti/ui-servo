@@ -22,8 +22,9 @@ panel*, and the agent, not the person, took it from there.
 
 - `hero.claude.0` beat `hero.claude.1` 2–0.
 - `hero.claude.2` beat `hero.claude.1` 2–0.
-- `hero.claude.0` vs `hero.claude.2` **escalated**: only one family was eligible
-  to judge it, and the protocol refuses a verdict on a single vote.
+- `hero.claude.0` vs `hero.claude.2` **escalated**: both families were eligible
+  and both were asked, but gemini's judge call timed out (`rc=124`, agy bridge),
+  leaving a single vote — and the protocol refuses a verdict on one vote.
 
 So the panel eliminated the card-shaped candidate, unanimously and on a named
 anti-reference, and declined to separate the two editorial openings.
@@ -43,6 +44,16 @@ separate. It is exactly the class of decision the loop is designed to *stop
 pretending to automate*, which is why the escalation is a feature rather than an
 unfinished ranking.
 
-**What would change it:** a fourth CLI family that only builds, freeing all three
-judges to vote (see `REVIEW_LOG.md`, "Staffing the panel"). Then the comparison
-gets a real verdict and this file becomes unnecessary.
+**What would change it:** re-running the comparison. The escalation was a
+transport failure, not a structural one, so the cheapest fix is to ask again —
+and the fact that this file exists instead of a re-run is a choice made under
+time pressure, not a limit of the method. (Separately, a fourth CLI family that
+only builds would raise the eligible-judge count generally; see `REVIEW_LOG.md`,
+"Staffing the panel".)
+
+**One more thing this record has to say.** `.claude/skills/gauntlet/SKILL.md`
+lists "do not break a tie yourself — a tie is the panel telling you the question
+is a taste question, and taste is the owner's" as a non-negotiable invariant, and
+`README.md` says the loop "will not pick". Promoting `hero.claude.0` broke that
+invariant. The honest description is not "the design working" but "the agent
+exceeded its brief to keep the session moving, and wrote it down".

@@ -292,8 +292,19 @@ fn resolve(path: &Path) -> PathBuf {
 
 /// The first symlink under `assets_dir` whose target leaves it, if any.
 ///
-/// Walked at boot rather than defended per-request: `ServeDir` resolves links
-/// itself, so by the time a request arrives the decision has been made.
+/// **Not the defence.** Containment is enforced per request in
+/// `main::static_asset`, on the resolved path, because a filesystem walked once
+/// at boot says nothing about the filesystem five minutes later. This is a
+/// fail-fast diagnostic: a layout that is obviously wrong should stop the
+/// process rather than quietly serve 404s.
+///
+/// It reads the link *target*. The first version canonicalised the link's own
+/// path, which for a dangling link fell back to the link's location -- inside
+/// the root, therefore "safe" -- so every symlink whose target did not exist yet
+/// was approved. That is precisely the state of a fresh checkout with a
+/// leftover `assets/fragments -> ../promoted` shim and no promotion made yet,
+/// and the first promotion then completed the exposure. Unresolvable targets now
+/// fail closed.
 fn symlink_escaping(assets_dir: &Path) -> Option<(PathBuf, PathBuf)> {
     let root = resolve(assets_dir);
     let mut stack = vec![assets_dir.to_path_buf()];
@@ -307,7 +318,14 @@ fn symlink_escaping(assets_dir: &Path) -> Option<(PathBuf, PathBuf)> {
                 .map(|meta| meta.file_type().is_symlink())
                 .unwrap_or(false);
             if is_link {
-                let target = resolve(&path);
+                // Resolve the target, not the link. A dangling target is an
+                // escape by default: it is unknowable now and may point anywhere
+                // by the time anything reads it.
+                let target = match std::fs::read_link(&path) {
+                    Ok(raw) if raw.is_absolute() => resolve(&raw),
+                    Ok(raw) => resolve(&dir.join(raw)),
+                    Err(_) => return Some((path.clone(), PathBuf::from("<unreadable>"))),
+                };
                 if !target.starts_with(&root) {
                     return Some((path, target));
                 }
@@ -502,75 +520,120 @@ mod tests {
     /// so those selectors must not confer visual identity, or the loop judges
     /// one appearance and the site serves another. This is the CSS-side twin of
     /// `fragments::tests::the_frame_imposes_no_visual_chrome`.
-    #[test]
-    fn the_sensor_attributes_carry_no_visual_identity() {
-        let css = std::fs::read_to_string(asset("site.css")).expect("site.css is committed");
-        // Every rule whose selector mentions a sensor attribute, not just the
-        // two bare ones: `[data-fragment] > *`, `section[data-span-id]:hover` and
-        // friends are the same hole with a longer selector.
-        let mut checked = 0;
+    /// Properties a sensor selector may carry: layout and behaviour, nothing
+    /// that decides how the thing looks.
+    const SENSOR_SAFE: [&str; 12] = [
+        "animation",
+        "animation-name",
+        "animation-duration",
+        "animation-timing-function",
+        "animation-fill-mode",
+        "max-width",
+        "min-width",
+        "width",
+        "display",
+        "margin-block-end",
+        "contain",
+        "content-visibility",
+    ];
+
+    /// Every `(selector, property)` a stylesheet hangs off a sensor attribute
+    /// that is not layout or behaviour.
+    ///
+    /// Extracted from the test so it can be run against *fixtures*. It was
+    /// previously inline and only ever saw the shipped `site.css` — which has no
+    /// sensor rule inside an at-rule and no custom property on one, so both of
+    /// the fixes this function exists to encode were unexecuted. Reverting either
+    /// left the suite green. A guard whose interesting branches never run is a
+    /// guard in name only.
+    fn sensor_visual_violations(css: &str) -> Vec<(String, String)> {
+        let mut found = Vec::new();
         for rule in css.split('}') {
-            // `rsplit_once`, not `split_once`: in `@media (…) { [data-fragment] { … `
+            // `rsplit_once`, not `split_once`: in `@media (…) { [data-fragment] { …`
             // the first `{` belongs to the at-rule, so splitting there puts the
-            // real selector inside the *block* half and the rule is skipped as
-            // unrecognisable — which is how chrome inside a media query walked
-            // straight past the first version of this guard.
+            // real selector in the *block* half and the rule is skipped.
             let Some((selector, block)) = rule.rsplit_once('{') else {
                 continue;
             };
-            // The selector of a rule nested in `@media`/`@supports` arrives with
-            // the at-rule prelude still attached to its front; take the part
-            // after the last `{` boundary so those rules are checked too rather
-            // than skipped for having an unrecognisable selector.
             let selector = selector.rsplit('{').next().unwrap_or(selector).trim();
             if !selector.contains("[data-fragment") && !selector.contains("[data-span-id") {
                 continue;
             }
-            checked += 1;
-            // An allowlist, not a denylist: naming the forbidden properties means
-            // the next one nobody thought of (`filter`, `backdrop-filter`,
-            // `mask`…) walks straight in. Layout and behaviour are the only
-            // things a sensor attribute may carry.
             for declaration in block.split(';') {
                 let Some((property, _)) = declaration.split_once(':') else {
                     continue;
                 };
                 let property = property.trim();
-                if property.is_empty() {
-                    continue;
-                }
                 // Custom properties are *not* skipped: `--card-bg` set on a
                 // sensor selector is inherited by everything inside it, which is
                 // visual identity taking the scenic route.
-
-                assert!(
-                    matches!(
-                        property,
-                        "animation"
-                            | "animation-name"
-                            | "animation-duration"
-                            | "animation-timing-function"
-                            | "animation-fill-mode"
-                            | "max-width"
-                            | "min-width"
-                            | "width"
-                            | "display"
-                            | "margin-block-end"
-                            | "contain"
-                            | "content-visibility"
-                    ),
-                    "{selector} sets {property:?}. The class-0 gate reads classes in fragment \
-                     markup, so anything hung off a sensor attribute is invisible to it — the \
-                     loop would judge one appearance and the site would serve another. If this \
-                     property is genuinely layout or behaviour, add it to the allowlist here, \
-                     in a diff, once."
-                );
+                if property.is_empty() || SENSOR_SAFE.contains(&property) {
+                    continue;
+                }
+                found.push((selector.to_owned(), property.to_owned()));
             }
         }
+        found
+    }
+
+    /// The scanner catches what it claims to, proven on fixtures rather than on
+    /// a stylesheet that happens not to exercise it.
+    #[test]
+    fn the_sensor_scanner_catches_every_shape_of_chrome() {
+        for css in [
+            "[data-fragment] { background: red; }",
+            "[data-span-id] { border: 1px solid red; }",
+            "[data-fragment] > * { background-color: red; }",
+            "section[data-fragment]:hover { box-shadow: 0 0 1px red; }",
+            "@media (prefers-reduced-motion: reduce) { [data-fragment] { background: red; } }",
+            "@supports (display: grid) { [data-span-id] { border: 1px; } }",
+            "[data-fragment] { --card-bg: red; }",
+            "[data-fragment] { filter: blur(1px); }",
+            "[data-fragment] { padding: 1rem; }",
+        ] {
+            assert!(
+                !sensor_visual_violations(css).is_empty(),
+                "scanner missed chrome in: {css}"
+            );
+        }
+    }
+
+    /// …and does not cry wolf over layout, behaviour, or unrelated selectors.
+    #[test]
+    fn the_sensor_scanner_allows_layout_and_behaviour() {
+        for css in [
+            "[data-fragment] { animation: fragment-in 90ms linear both; }",
+            "[data-span-id] { max-width: 60ch; }",
+            "[data-fragment] > :last-child { margin-block-end: 0; }",
+            ".card { background: red; border: 1px solid red; }",
+            "@media (min-width: 40rem) { .card { background: red; } }",
+        ] {
+            assert!(
+                sensor_visual_violations(css).is_empty(),
+                "false positive on: {css} -> {:?}",
+                sensor_visual_violations(css)
+            );
+        }
+    }
+
+    /// The gate reads classes in fragment markup. Anything the stylesheet hangs
+    /// off `[data-fragment]` or `[data-span-id]` is therefore invisible to it —
+    /// so those selectors must not confer visual identity, or the loop judges
+    /// one appearance and the site serves another. This is the CSS-side twin of
+    /// `fragments::tests::the_frame_imposes_no_visual_chrome`.
+    #[test]
+    fn the_shipped_stylesheet_hangs_no_identity_off_a_sensor_attribute() {
+        let css = std::fs::read_to_string(asset("site.css")).expect("site.css is committed");
+        let found = sensor_visual_violations(&css);
         assert!(
-            checked >= 2,
-            "no rules matched the sensor attributes; the selectors were renamed and this \
-             guard silently stopped guarding"
+            found.is_empty(),
+            "site.css sets {found:?} on a sensor attribute, which the class-0 gate cannot see. \
+             If a property there is genuinely layout or behaviour, add it to SENSOR_SAFE, in a \
+             diff, once."
+        );
+        assert!(
+            css.contains("[data-fragment] {") && css.contains("[data-span-id] {"),
+            "the sensor selectors were renamed and this guard silently stopped guarding"
         );
     }
 
@@ -629,31 +692,27 @@ mod tests {
     /// the asset root resolved to absolute; the two could not share a prefix,
     /// the check passed, and the first promotion created the directory inside
     /// the served root.
+    ///
+    /// Tested through `resolve` directly rather than by driving `AppState::load`
+    /// with `set_current_dir`. That call is process-wide, cargo runs tests on
+    /// many threads, and the restore was a plain statement — a panic anywhere in
+    /// between left every other test running in a deleted directory. A test for
+    /// a path bug should not be able to break the suite around it.
     #[test]
-    fn a_relative_root_whose_promotion_directory_is_missing_is_still_checked() {
-        let dir = std::env::temp_dir().join(format!("ui-servo-rel-{}", crate::span::new_span_id()));
-        std::fs::create_dir_all(dir.join("assets")).unwrap();
-        for name in [TOKENS_CSS, MOTION_JSON] {
-            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
-        }
-        // No `promoted/` yet, and both roots given relative to `dir`.
-        let previous = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&dir).unwrap();
-        let outcome = AppState::load(
-            PathBuf::from("assets"),
-            PathBuf::from("assets"),
-            false,
-            "b".into(),
-            "t".into(),
-        );
-        std::env::set_current_dir(previous).unwrap();
-        std::fs::remove_dir_all(&dir).ok();
-
+    fn a_relative_path_whose_directory_is_missing_still_resolves_absolutely() {
+        let missing = PathBuf::from("assets/promoted/not-created-yet");
+        let resolved = resolve(&missing);
         assert!(
-            matches!(outcome, Err(StartupError::PromotedInsideAssets { .. })),
-            "overlap went undetected because the promotion directory did not exist yet: \
-             {outcome:?}"
+            resolved.is_absolute(),
+            "a missing relative path stayed relative ({resolved:?}), so it cannot be \
+             compared against an absolute root and the overlap check fails open"
         );
+        assert!(resolved.ends_with("assets/promoted/not-created-yet"));
+
+        // And the comparison it exists to serve holds: same prefix, so nested.
+        assert!(resolve(&PathBuf::from("assets/promoted")).starts_with(resolve(&PathBuf::from("assets"))));
+        // …while genuinely disjoint roots stay disjoint.
+        assert!(!resolve(&PathBuf::from("promoted")).starts_with(resolve(&PathBuf::from("assets"))));
     }
 
     /// A link inside the served root defeats disjoint roots entirely.
@@ -665,7 +724,14 @@ mod tests {
         for name in [TOKENS_CSS, MOTION_JSON] {
             std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
         }
-        std::os::unix::fs::symlink("../promoted", dir.join("assets").join("picks")).unwrap();
+        // Nested, so the walk has to descend. With the link at the top level the
+        // test passed even with the directory recursion deleted.
+        std::fs::create_dir_all(dir.join("assets").join("img").join("deep")).unwrap();
+        std::os::unix::fs::symlink(
+            "../../../promoted",
+            dir.join("assets").join("img").join("deep").join("picks"),
+        )
+        .unwrap();
 
         let outcome =
             AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
@@ -674,6 +740,33 @@ mod tests {
         assert!(
             matches!(outcome, Err(StartupError::AssetSymlinkEscapes { .. })),
             "a symlink reaching out of the served root was accepted: {outcome:?}"
+        );
+    }
+
+    /// A symlink whose target does not exist yet must not be waved through.
+    ///
+    /// The first version resolved the *link's own path*; for a dangling link
+    /// `canonicalize` failed, the fallback returned the link's location inside
+    /// the root, and it was approved. That is the exact state of a checkout with
+    /// a leftover `assets/fragments -> ../promoted` shim and no promotion made
+    /// yet — and the first promotion then completed the exposure.
+    #[test]
+    fn a_symlink_to_a_target_that_does_not_exist_yet_is_refused() {
+        let dir = std::env::temp_dir().join(format!("ui-servo-dang-{}", crate::span::new_span_id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        for name in [TOKENS_CSS, MOTION_JSON] {
+            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
+        }
+        // No `promoted/` yet: the target is dangling at boot.
+        std::os::unix::fs::symlink("../promoted", dir.join("assets").join("fragments")).unwrap();
+
+        let outcome =
+            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            matches!(outcome, Err(StartupError::AssetSymlinkEscapes { .. })),
+            "a dangling symlink out of the served root was approved: {outcome:?}"
         );
     }
 

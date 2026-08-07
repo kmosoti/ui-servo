@@ -274,7 +274,7 @@ A pick does two things, and only the owner can trigger either:
    `site/promoted/` by hand has no provenance and will be refused, which is the
    intended behaviour.
 
-   U14 owns the serving side: `fragments::promoted::render(part)` reads the file, wraps it
+   U14 owns the serving side: `fragments::promoted::load(root, part)` reads the file, wraps it
    in `frame()` so it gets a fresh `data-span-id` and `elementtiming`, and serves it at
    **`/fragments/promoted/{part}`**. The home page mounts the promoted `hero` when that file
    exists and falls back to the built-in placeholder when it does not — so a pick visibly

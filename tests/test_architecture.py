@@ -115,20 +115,12 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
     submodule or an attribute is unknowable without importing, and a layering
     check must not be the thing that decides to execute application code.
 
-    ``importlib.import_module("x.y")`` counts too, and that is not pedantry. An
-    earlier version of this repo had ``ui_servo.control.servo`` reach its
-    adapters that way, with a docstring explaining that it kept the import graph
-    honest. It did the opposite: the dependency was real, this guard read only
-    ``import`` statements, and the rule passed while being broken. A layering
-    check that any developer can step around by spelling the import differently
-    is decoration. Only literal arguments are resolvable -- a computed module
-    name is caught by :func:`test_no_module_name_is_computed` instead.
+    Static imports only. Dynamic ones are not resolved here because they are not
+    permitted at all inside the hexagon -- see :data:`RUNTIME_IMPORT_POWERS`.
     """
     package = module if is_package else module.rpartition(".")[0]
-    tree = ast.parse(source)
-    aliases = _import_module_aliases(tree)
     found: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(ast.parse(source)):
         match node:
             case ast.Import(names=names):
                 found.update(alias.name for alias in names)
@@ -144,108 +136,7 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
                     continue
                 found.add(base)
                 found.update(f"{base}.{alias.name}" for alias in names)
-            case ast.Call():
-                found.update(_dynamic_targets(node, module=module, package=package, aliases=aliases))
     return frozenset(found)
-
-
-def _import_module_aliases(tree: ast.AST) -> frozenset[str]:
-    """Every local name bound to ``importlib.import_module``.
-
-    Three spellings, because two of them were found by a reviewer after the first
-    was fixed: the import alias (``from importlib import import_module as load``)
-    and plain assignment (``load = import_module``, ``load = importlib.import_module``).
-    A guard that recognises one name is a guard one rename away from decorative.
-
-    Fixed-point rather than single-pass, so a chain (``a = import_module``,
-    ``b = a``) is also caught -- an aliasing check that stops after one hop just
-    moves the bypass one line further down.
-    """
-    names = {"import_module"}
-    for _ in range(8):  # a chain longer than this is not a rename, it is an essay
-        before = len(names)
-        for node in ast.walk(tree):
-            match node:
-                case ast.ImportFrom(module="importlib", names=imported):
-                    names.update(
-                        alias.asname or alias.name
-                        for alias in imported
-                        if alias.name == "import_module"
-                    )
-                case ast.Assign(targets=targets, value=value) if _is_import_module(
-                    value, frozenset(names)
-                ):
-                    names.update(
-                        target.id for target in targets if isinstance(target, ast.Name)
-                    )
-                case _:
-                    pass
-        if len(names) == before:
-            break
-    return frozenset(names)
-
-
-def _is_import_module(func: ast.expr, aliases: frozenset[str]) -> bool:
-    """``import_module(...)`` under any of its local names, or ``x.import_module``."""
-    match func:
-        case ast.Name(id=name):
-            return name in aliases
-        case ast.Attribute(attr="import_module"):
-            return True
-        case _:
-            return False
-
-
-def _dynamic_targets(
-    call: ast.Call, *, module: str, package: str, aliases: frozenset[str]
-) -> set[str]:
-    """What a literal ``import_module`` call actually resolves to.
-
-    Relative targets are resolved against the ``package=`` keyword the same way
-    the interpreter would: ``import_module(".cli.servo", package="ui_servo")``
-    reaches ``ui_servo.cli.servo``, and recording the leading-dot string verbatim
-    would file it as a harmless-looking third-party name instead.
-    """
-    if not _is_import_module(call.func, aliases):
-        return set()
-    match call.args:
-        case [ast.Constant(value=str(target)), *_]:
-            pass
-        case _:
-            return set()
-    if not target.startswith("."):
-        return {target}
-
-    # `package` is the second *positional* parameter as well as a keyword one.
-    # Reading only the keyword form meant `import_module(".adapters.x", "ui_servo")`
-    # was resolved against the calling module instead of against `ui_servo`,
-    # which is what the interpreter would actually import.
-    anchor = package
-    match call.args:
-        case [_, ast.Constant(value=str(positional)), *_]:
-            anchor = positional
-        case _:
-            for keyword in call.keywords:
-                if keyword.arg == "package" and isinstance(keyword.value, ast.Constant):
-                    anchor = str(keyword.value.value)
-    level = len(target) - len(target.lstrip("."))
-    parts = anchor.split(".") if anchor else []
-    trimmed = parts[: len(parts) - (level - 1)] if level > 1 else parts
-    remainder = target.lstrip(".")
-    return {".".join([*trimmed, *([remainder] if remainder else [])])}
-
-
-def dynamic_import_targets(source: str) -> tuple[ast.Call, ...]:
-    """``import_module`` calls whose argument this guard cannot read."""
-    tree = ast.parse(source)
-    aliases = _import_module_aliases(tree)
-    return tuple(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and _is_import_module(node.func, aliases)
-        and not (node.args and isinstance(node.args[0], ast.Constant))
-    )
 
 
 def violations(module: str, imports: frozenset[str]) -> tuple[str, ...]:
@@ -276,6 +167,83 @@ def violations(module: str, imports: frozenset[str]) -> tuple[str, ...]:
     return tuple(found)
 
 
+RUNTIME_IMPORT_POWERS: frozenset[str] = frozenset(
+    {"import_module", "__import__", "exec", "eval", "importlib"}
+)
+"""Identifiers that turn a string into an imported module at runtime.
+
+Referencing any of these inside the hexagon is a violation *in itself*, which is
+a deliberate retreat from the previous design. That one tried to resolve dynamic
+imports -- follow the alias, resolve the relative target, decide what was really
+being imported -- and it lost, repeatedly. Three rounds of fixes, and a review
+still produced sixteen one-line bypasses: ``__import__``,
+``getattr(importlib, "import_module")``, ``importlib.__dict__[...]``,
+``functools.partial``, ``staticmethod``, walrus and annotated and tuple and
+for-target and default-argument bindings, ``exec`` of a literal import, and an
+alias chain longer than the resolver's hard-coded bound. One of them defeated the
+computed-name test as well, so a fully dynamic import was silently skipped by the
+check written to catch exactly that.
+
+The lesson is that recognising every spelling of a capability is a losing game,
+because the language keeps offering more. So the rule is now about the capability
+rather than its spelling: no layer inside the hexagon may hold a runtime importer
+at all. That is checkable in a page of code and does not acquire a new case every
+time somebody is cleverer than the last reviewer.
+
+``importlib`` itself is on the list because holding the module is holding the
+function: ``getattr(importlib, "import_module")`` needs no other name.
+``from importlib.resources import files`` stays legal -- it binds neither
+``importlib`` nor an importer, and reading a packaged data file is not a
+dependency on another layer.
+
+**Threat model, stated plainly.** This stops a shortcut, not an adversary.
+Anyone able to commit to this repo can also edit this file; the guard exists so
+that quietly breaking the layering takes a deliberate, visible act rather than a
+convenient one-liner. `# arch: allow` is that visible act.
+"""
+
+ARCH_ALLOW: str = "# arch: allow"
+"""Escape hatch. On the same line, with a reason after it, and it shows up in a
+diff -- which is the whole point: the rule can be broken, but not silently."""
+
+
+def runtime_import_powers(source: str) -> tuple[tuple[int, str], ...]:
+    """Every reference to runtime import machinery, with its line number.
+
+    Matches on identifier alone -- any ``Name`` or ``Attribute`` -- so it does not
+    matter how the reference was obtained, only that the module has one.
+    """
+    lines = source.splitlines()
+    allowed = {
+        number for number, text in enumerate(lines, start=1) if ARCH_ALLOW in text
+    }
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source)):
+        identifier: str | None = None
+        match node:
+            case ast.Name(id=name) if name in RUNTIME_IMPORT_POWERS:
+                identifier = name
+            case ast.Attribute(attr=attr) if attr in RUNTIME_IMPORT_POWERS:
+                identifier = attr
+            # `import importlib` and `import importlib.resources` both bind the
+            # name `importlib`, and holding the module is holding the importer.
+            # The `from importlib.resources import ...` form binds neither.
+            case ast.Import(names=names) if any(
+                alias.name == "importlib" or alias.name.startswith("importlib.")
+                for alias in names
+            ):
+                identifier = "importlib"
+            case ast.ImportFrom(module="importlib", names=names) if any(
+                alias.name in RUNTIME_IMPORT_POWERS for alias in names
+            ):
+                identifier = "import_module"
+            case _:
+                continue
+        if node.lineno not in allowed:
+            found.append((node.lineno, identifier))
+    return tuple(sorted(set(found)))
+
+
 def python_modules() -> Iterator[tuple[str, Path]]:
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         if "__pycache__" in path.parts:
@@ -297,19 +265,27 @@ def test_package_is_actually_scanned() -> None:
 
 
 @pytest.mark.parametrize(("module", "path"), _cases(), ids=lambda value: str(value))
-def test_no_module_name_is_computed(module: str, path: Path) -> None:
-    """A module name this guard cannot read is a hole in it.
+def test_no_runtime_import_machinery(module: str, path: Path) -> None:
+    """No layer inside the hexagon may hold a runtime importer.
 
-    Literal ``import_module("ui_servo.adapters.x")`` is resolved and checked like
-    any other import. ``import_module(name)`` cannot be, so it is refused
-    outright rather than silently skipped -- the failure mode this whole file
-    exists to prevent is a dependency that is real and invisible.
+    The previous rule tried to work out *what* a dynamic import imported. This
+    one refuses the capability, because sixteen demonstrated bypasses established
+    that the resolver could not be made complete: every fix taught the next
+    reviewer a new spelling.
+
+    ``ui_servo.cli`` is exempt. It is the composition root, it is allowed to name
+    anything, and it is outside the hexagon.
     """
-    computed = dynamic_import_targets(path.read_text(encoding="utf-8"))
-    assert not computed, (
-        f"{module} computes a module name at line(s) "
-        f"{sorted({node.lineno for node in computed})}; the layer guard cannot see through it. "
-        "Import it normally, or move the composition into ui_servo.cli."
+    if _covers("ui_servo.cli", module):
+        return
+    powers = runtime_import_powers(path.read_text(encoding="utf-8"))
+    assert not powers, (
+        f"{module} references runtime import machinery at "
+        + ", ".join(f"line {line} ({name})" for line, name in powers)
+        + ". Inside the hexagon a module's dependencies must be readable from its "
+        f"import statements. If this one is genuinely necessary, put `{ARCH_ALLOW} "
+        "<reason>` on the line so the exception is a visible act rather than a "
+        "convenient one."
     )
 
 
@@ -334,101 +310,71 @@ class TestTheGuardItself:
         assert "ui_servo.adapters.playwright_browser" in imports
         assert violations("ui_servo.domain.contract", imports)
 
-    def test_detects_the_importlib_dodge_that_used_to_pass(self) -> None:
-        """The exact code this guard once let through, in both spellings.
-
-        ``ui_servo.control.servo`` reached its adapters this way and the suite
-        stayed green. That is the regression: not a wrong rule, an unenforced one.
-        """
-        for source in (
-            'import importlib\n\ndef main():\n'
-            '    importlib.import_module("ui_servo.adapters.nh3_sanitizer")\n',
-            'from importlib import import_module\n\ndef main():\n'
-            '    import_module("ui_servo.adapters.nh3_sanitizer")\n',
-        ):
-            imports = self._imports(source, "ui_servo.control.servo")
-            assert "ui_servo.adapters.nh3_sanitizer" in imports, source
-            assert violations("ui_servo.control.servo", imports), source
-
-    def test_renaming_import_module_does_not_hide_the_import(self) -> None:
-        """A guard one rename away from being bypassed is not a guard."""
-        imports = self._imports(
-            'from importlib import import_module as load\n\ndef main():\n'
-            '    load("ui_servo.adapters.nh3_sanitizer")\n',
-            "ui_servo.control.servo",
-        )
-        assert "ui_servo.adapters.nh3_sanitizer" in imports
-        assert violations("ui_servo.control.servo", imports)
+    # ---------------------------------------------------------------- powers ---
+    #
+    # Every case below was demonstrated as a working bypass of the previous
+    # resolve-the-dynamic-import design, by a reviewer, after three rounds of
+    # fixing that design. They are kept as a set because the point is not any one
+    # of them: it is that the set kept growing, which is what moved the rule from
+    # "work out what this imports" to "you may not hold an importer".
 
     @pytest.mark.parametrize(
-        "source",
+        ("label", "source"),
         [
-            # Assignment, not an import alias.
-            'from importlib import import_module\nload = import_module\n'
-            'load("ui_servo.adapters.nh3_sanitizer")\n',
-            'import importlib\nload = importlib.import_module\n'
-            'load("ui_servo.adapters.nh3_sanitizer")\n',
-            # A chain, because stopping after one hop just moves the bypass down.
-            'from importlib import import_module\na = import_module\nb = a\n'
-            'b("ui_servo.adapters.nh3_sanitizer")\n',
+            ("builtin", '__import__("ui_servo.adapters.nh3_sanitizer")\n'),
+            ("builtin rebound", 'imp = __import__\nimp("ui_servo.adapters.nh3_sanitizer")\n'),
+            ("builtins attr", 'import builtins\nbuiltins.__import__("x")\n'),
+            ("plain", 'import importlib\nimportlib.import_module("x")\n'),
+            ("from-import", 'from importlib import import_module\nimport_module("x")\n'),
+            ("import alias", 'from importlib import import_module as load\nload("x")\n'),
+            ("assign alias", 'from importlib import import_module\nload = import_module\nload("x")\n'),
+            ("getattr", 'import importlib\ngetattr(importlib, "import_module")("x")\n'),
+            ("__dict__", 'import importlib\nimportlib.__dict__["import_module"]("x")\n'),
+            ("partial", 'import functools, importlib\nfunctools.partial(importlib.import_module)("x")\n'),
+            ("staticmethod", 'from importlib import import_module\nclass L:\n    load = staticmethod(import_module)\n'),
+            ("annassign", 'from importlib import import_module\nload: object = import_module\n'),
+            ("walrus", 'from importlib import import_module\n(load := import_module)\n'),
+            ("tuple target", 'from importlib import import_module\nload, other = import_module, None\n'),
+            ("for target", 'from importlib import import_module\nfor load in (import_module,):\n    pass\n'),
+            ("default arg", 'from importlib import import_module\ndef go(load=import_module):\n    pass\n'),
+            ("boolop", 'from importlib import import_module\nload = None\nload = load or import_module\n'),
+            ("submodule import", 'import importlib.resources\ngetattr(importlib, "import_module")("x")\n'),
+            ("exec", 'exec("from ui_servo.adapters import nh3_sanitizer")\n'),
+            ("eval", 'eval("__import__(\'ui_servo.adapters.nh3_sanitizer\')")\n'),
+            ("computed name", 'import importlib\nimportlib.import_module("ui_servo.adapters." + n)\n'),
         ],
     )
-    def test_rebinding_import_module_does_not_hide_the_import(self, source: str) -> None:
-        imports = self._imports(source, "ui_servo.control.servo")
-        assert "ui_servo.adapters.nh3_sanitizer" in imports, source
-        assert violations("ui_servo.control.servo", imports), source
+    def test_every_route_to_a_runtime_importer_is_refused(self, label: str, source: str) -> None:
+        assert runtime_import_powers(source), f"{label} passed: {source!r}"
 
-    def test_the_package_argument_is_read_positionally_too(self) -> None:
-        """`import_module(name, package)` — `package` is the second positional.
+    def test_reading_a_packaged_file_is_still_allowed(self) -> None:
+        """`from importlib.resources import files` binds no importer.
 
-        Reading only the keyword form resolved `.adapters.x` against the calling
-        module instead of against `ui_servo`, so the guard recorded a name the
-        interpreter would never import and missed the one it would.
+        The rule has to leave this alone or it stops being about layering and
+        starts being about the word "importlib" — three modules in this repo read
+        their packaged contract this way.
         """
-        imports = self._imports(
-            'import importlib\nimportlib.import_module(".adapters.nh3_sanitizer", "ui_servo")\n',
-            "ui_servo.domain.contract",
-        )
-        assert "ui_servo.adapters.nh3_sanitizer" in imports
-        assert violations("ui_servo.domain.contract", imports)
+        assert not runtime_import_powers("from importlib.resources import as_file, files\n")
+        assert not runtime_import_powers("from importlib.metadata import version\n")
 
-    def test_a_relative_dynamic_import_is_resolved_not_taken_literally(self) -> None:
-        """``.cli.servo`` is `ui_servo.cli.servo`, not a third-party package.
+    def test_the_escape_hatch_works_and_is_line_scoped(self) -> None:
+        """The rule can be broken — visibly, in a diff, with a reason."""
+        allowed = 'import importlib  # arch: allow -- plugin loader, see ADR-4\n'
+        assert not runtime_import_powers(allowed)
+        # Only the annotated line is exempt. Line 2 trips twice — once for the
+        # `importlib` reference and once for the `.import_module` attribute —
+        # which is the belt-and-braces the capability rule is supposed to have.
+        mixed = allowed + 'importlib.import_module("ui_servo.adapters.x")\n'
+        assert {line for line, _ in runtime_import_powers(mixed)} == {2}
+        assert {name for _, name in runtime_import_powers(mixed)} == {
+            "importlib",
+            "import_module",
+        }
 
-        Recorded verbatim, the leading dot makes it look like an unknown external
-        name, and an inner layer could pull in the composition root — and every
-        adapter behind it — with the guard none the wiser.
-        """
-        imports = self._imports(
-            'import importlib\nimportlib.import_module(".cli.servo", package="ui_servo")\n',
-            "ui_servo.control.servo",
-        )
-        assert "ui_servo.cli.servo" in imports
-        assert violations("ui_servo.control.servo", imports)
-
-    def test_the_same_dodge_is_allowed_in_the_composition_root(self) -> None:
-        """`cli` may name adapters however it likes; that is what it is for."""
-        imports = self._imports(
-            'import importlib\nimportlib.import_module("ui_servo.adapters.nh3_sanitizer")\n',
-            "ui_servo.cli.servo",
-        )
-        assert not violations("ui_servo.cli.servo", imports)
-
-    def test_a_computed_module_name_is_refused_rather_than_skipped(self) -> None:
-        computed = dynamic_import_targets(
-            'import importlib\n'
-            'def load(name):\n'
-            '    return importlib.import_module("ui_servo.adapters." + name)\n'
-        )
-        assert len(computed) == 1
-        # A literal one is readable, so it is checked rather than refused.
-        assert not dynamic_import_targets('import_module("ui_servo.adapters.x")\n')
-
-    def test_no_layer_may_import_the_composition_root(self) -> None:
-        """`cli` is outermost: importing it would drag every adapter inward."""
-        for layer in ("ui_servo.domain", "ui_servo.ports", "ui_servo.control", "ui_servo.adapters"):
-            imports = self._imports("from ui_servo.cli import servo\n", f"{layer}.thing")
-            assert violations(f"{layer}.thing", imports), layer
+    def test_the_composition_root_is_exempt_from_the_powers_rule(self) -> None:
+        """`ui_servo.cli` is outside the hexagon; naming things is its job."""
+        assert _covers("ui_servo.cli", "ui_servo.cli.servo")
+        assert not _covers("ui_servo.cli", "ui_servo.control.servo")
 
     def test_detects_from_import_of_sibling_package(self) -> None:
         imports = self._imports("from ui_servo import control\n", "ui_servo.domain.contract")

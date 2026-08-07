@@ -150,8 +150,14 @@ a critic "which of these is better?" and "which of these is closer to *this*",
 and the verdicts change accordingly — see the demo.
 
 **[`demo/`](demo/) is a complete round, end to end**, with the candidates, the
-blind prompts the critics actually received, their verdicts, the gate rejection,
-and the promoted result. Including what the three rounds before it got wrong.
+blind-staged artefacts the critics were shown (opaque filenames, family stripped),
+their verdicts, the gate rejection, the judge timeout that caused the one
+escalation, and the promoted result. Including what the three rounds before it
+got wrong.
+
+The prompt *text* is not committed — `critique.py` builds it but never emits it
+as a signal, so it is not in the evidence to commit. What you can check is what
+the critics were shown and what they returned.
 
 ## Layout
 

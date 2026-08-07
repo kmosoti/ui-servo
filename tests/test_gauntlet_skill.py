@@ -218,7 +218,7 @@ class TestPromotion:
 
         assert PROMOTED_PATH in body
         assert PROMOTED_ROUTE in body
-        assert "fragments::promoted::render" in body
+        assert "fragments::promoted::load" in body
 
     def test_skill_requires_the_provenance_comment_at_promotion(
         self, bodies: dict[str, str]

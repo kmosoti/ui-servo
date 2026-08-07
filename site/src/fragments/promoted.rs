@@ -5,13 +5,20 @@
 //! here, which is what makes the loop closed rather than advisory — a pick that
 //! only ever lived in `evidence/` would change nothing anyone can visit.
 //!
-//! **Provenance is mandatory.** Every promoted file must carry
-//! `<!-- ui-servo: gated round=<n> sha256=<hash> -->` as written by the
-//! promotion step. The class-0 sanitiser is Python and runs at promotion time,
-//! so this comment is the only evidence the running site has that the markup it
-//! is about to serve was ever gated at all. A file without it — hand-dropped,
-//! half-copied, or written by something that skipped the loop — is refused. The
-//! hash is checked too: an edit after promotion is an ungated edit.
+//! **Provenance is mandatory, and is integrity rather than authorship.** Every
+//! promoted file must carry `<!-- ui-servo: gated round=<n> sha256=<hash> -->`
+//! as written by the promotion step, over a preimage that includes the part and
+//! the round. A file without it — hand-dropped, half-copied, or written by
+//! something that skipped the loop by mistake — is refused, and so is one whose
+//! body or metadata changed after promotion.
+//!
+//! What it does *not* do is establish that somebody was authorised to write the
+//! file. The digest is unkeyed and sits inside the file it describes, so a
+//! deliberate forger recomputes it in one line; that was demonstrated in review.
+//! The check is worth having because the failures it catches are the ones that
+//! actually occur — a stale pick, a hand edit, a bad merge — and because every
+//! one of them would otherwise be silent. It is not worth overstating, and
+//! earlier versions of this comment did.
 //!
 //! The refusal is loud on purpose. In dev it is a 500 and a logged violation; a
 //! silent fallback to the placeholder would let an ungated fragment look exactly
@@ -176,6 +183,13 @@ const DIGEST_VERSION: &str = "ui-servo/1";
 /// version tag; every field is a validated token, so none can contain a
 /// separator and shift the boundary between two others.
 pub fn sha256_of(body: &str, part: &str, round: &str) -> String {
+    // Normalised before hashing, matching `_normalise_newlines` on the writing
+    // side. Without it the reader strips `\r` from the header (via `lines()`)
+    // but hashes every interior one, so a CRLF checkout of a multi-line fragment
+    // is refused as tampering -- a false accusation, with "re-promote it"
+    // as the unhelpful advice.
+    let body = body.replace("\r\n", "\n").replace('\r', "\n");
+    let body = body.as_str();
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_VERSION.as_bytes());
     hasher.update(b"\n");
@@ -264,8 +278,9 @@ pub fn render_verified(promoted: &Promoted) -> Markup {
     )
 }
 
-/// Load and frame in one step. Used by the dev path and the tests; the release
-/// path goes through `AppState::promoted`, which verified at boot.
+/// Load and frame in one step. Test-only: every serving path goes through
+/// `AppState::promoted`, so that dev and release cannot disagree about policy.
+#[cfg(test)]
 pub fn render(root: &Path, part: &str) -> Result<Markup, PromotionError> {
     Ok(render_verified(&load(root, part)?))
 }
@@ -362,6 +377,35 @@ mod tests {
             load(&root, "footer"),
             Err(PromotionError::HashMismatch(..))
         ));
+    }
+
+    /// The digest field has a grammar too, and it had no test at all: replacing
+    /// the whole of `is_digest` with `!value.is_empty()` left every test green.
+    /// Half of "the two sides agree about the format" was unverified.
+    #[test]
+    fn a_digest_outside_the_writers_grammar_is_refused() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        let honest = sha256_of(body, "hero", "4");
+        for bad in [
+            honest[..63].to_owned(),                       // too short
+            format!("{honest}0"),                          // too long
+            honest.to_uppercase(),                         // the writer emits lowercase
+            honest.replace('a', "g"),                      // not hex
+            "0".repeat(64),                                // well-formed, wrong
+        ] {
+            write(
+                &root,
+                "hero",
+                &format!("<!-- ui-servo: gated round=4 sha256={bad} -->\n{body}"),
+            );
+            let outcome = load(&root, "hero");
+            let refused = matches!(
+                outcome,
+                Err(PromotionError::ForgedProvenance(..)) | Err(PromotionError::HashMismatch(..))
+            );
+            assert!(refused, "digest {bad:?} was accepted: {outcome:?}");
+        }
     }
 
     /// A provenance line the promoter could not have written is not provenance.

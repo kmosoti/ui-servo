@@ -131,9 +131,10 @@ sits outside all of it.
 
 - `ui_servo/domain/` imports **only the standard library and pydantic**. No I/O, no browser,
   no model, no filesystem. Pure functions of parsed data.
-- `ui_servo/ports/` defines the interfaces the loop needs (`Browser`, `CriticPanel`,
-  `EvidenceStore`, `Clock`) in terms of domain types. Domain and pydantic only — an
-  interface that imports FastAPI has stopped being an interface.
+- `ui_servo/ports/` defines the interfaces the loop needs — `SanitizerPort`,
+  `SensorPort`, `JudgePort`, `EvidenceStorePort`, `ExemplarStorePort` — in terms of
+  domain types. Domain and pydantic only: an interface that imports FastAPI has
+  stopped being an interface.
 - `ui_servo/control/` imports `domain` and `ports` — **never** `adapters`, and **no
   third-party libraries at all**. The loops must be runnable end-to-end against fakes; if a
   loop needs a wire, a browser or a vendor SDK, that need belongs behind a port.
@@ -150,10 +151,16 @@ sits outside all of it.
   This layer exists because of a mistake worth recording. `main()` used to live inside
   `control` and reach its adapters via `importlib.import_module`, which kept the import
   graph genuinely cheap — and also made the guard below pass while the dependency was real,
-  since a string argument is not an `import` statement. The rule was being evaded rather
-  than satisfied. The guard now resolves literal `import_module` arguments and refuses
-  computed ones, so the only way to satisfy it is to actually be in a layer that is allowed
-  to make the import.
+  since a string argument is not an `import` statement.
+
+  Three rounds of fixes tried to *resolve* dynamic imports — follow the alias, resolve the
+  relative target — and a review then produced sixteen one-line bypasses of the result
+  (`__import__`, `getattr(importlib, ...)`, walrus and annotated bindings, `exec`, an alias
+  chain longer than the resolver's bound). So the rule no longer asks what a dynamic import
+  imports: **inside the hexagon, holding a runtime importer is itself the violation.**
+  `import_module`, `__import__`, `exec`, `eval` and `importlib` are refused outright, with
+  `# arch: allow <reason>` as a visible escape hatch. `from importlib.resources import files`
+  stays legal — it binds neither the module nor an importer.
 
 Enforced by `tests/test_architecture.py`, which walks every module with `ast` (no imports
 executed) and checks both halves of the table: which `ui_servo` packages a layer reaches and

@@ -47,6 +47,7 @@ round 4 / part hero: 3 ranked, 1 rejected by gates, 3 comparison(s), 1 escalated
   #3 hero.claude.1 (0 pts, 0W/0D/2L, blandness 0.673)
   ESCALATED cmp-01005a64816f: only 1 family voted; a panel needs at least 2
                               decorrelated critics
+  frontier report: evidence/rounds/4/frontier.html
 ```
 
 **The broken candidate never reached a judge.** It failed the deterministic gates
@@ -62,12 +63,27 @@ hero. From `round.json`:
 |---|---|---|---|
 | `cmp-d130df28c71c` | `hero.claude.0` | `hero.claude.1` | 2–0 for A |
 | `cmp-26c1252c854d` | `hero.claude.1` | `hero.claude.2` | 0–2 for B |
-| `cmp-01005a64816f` | `hero.claude.0` | `hero.claude.2` | **escalated** — one family eligible |
+| `cmp-01005a64816f` | `hero.claude.0` | `hero.claude.2` | **escalated** — gemini's call timed out, leaving one vote |
 
 So the panel decided one thing and declined to decide another. It eliminated the
 card, twice, unanimously, on a named anti-reference. It never separated the two
-editorial openings — that comparison had a single eligible critic (§6) and the
-protocol refuses a verdict on one vote.
+editorial openings.
+
+**Why that one escalated is worth stating exactly, because an earlier version of
+this file got it wrong.** It was not the staffing constraint of §6. Both families
+were eligible and both were asked; gemini's call failed:
+
+```json
+{"kind": "judge-error", "round_id": "4:cmp-01005a64816f", "family": "gemini",
+ "rc": 124, "reason": "judge returned rc=124: agy bridge timed out"}
+{"kind": "panel-outcome", "asked": ["codex", "gemini"], "rejected": ["gemini"],
+ "voting_families": ["codex"], "status": "escalate"}
+```
+
+So this was an infrastructure failure, and the protocol then did the right thing
+with it: one surviving vote is not a panel, and it refused to pretend otherwise.
+That is worth more than the tidier story it replaced — the guard fires on a
+transport timeout, not just on the staffing case somebody designed it for.
 
 The promoted hero is therefore **not a panel choice**. The escalation moved the
 decision out of the panel, and the agent running the session took it from there —
@@ -77,8 +93,14 @@ evidence cannot establish the claim on its own: a tie plus an escalation looks
 identical whether a person deliberated or a script promoted rank one, so who
 decided has to be written down or not asserted.
 
-That is the design working. The loop is meant to stop at the calls it cannot make
-on the evidence it has, rather than manufacture a ranking to look decisive.
+The loop stopping at a call it could not make on the evidence it had is the
+design working. **What happened next was not.**
+`.claude/skills/gauntlet/SKILL.md` lists "do not break a tie yourself" as a
+non-negotiable invariant and `README.md` says the loop "will not pick"; the pick
+was then made by the agent anyway, to keep the session moving. `decision.md`
+records that as an invariant violation rather than as the method operating to
+spec, because a demo that quietly redefines its own rules when they become
+inconvenient is worth less than one that reports breaking them.
 
 ## 3. What the critics said
 
@@ -145,8 +167,18 @@ itself to a round that never produced it. A comment cannot hash itself, so the
 values it asserts are bound into the preimage instead.
 
 The Rust server verifies that comment **and** the hash — at boot for every
-promoted file in release mode, so a tampered pick fails the deploy rather than
-the first visitor. Proof it is not decoration:
+promoted file when `UI_SERVO_DEV` is unset (that is what "release mode" means
+here; it is a runtime flag, not the cargo profile), so a tampered pick fails the
+deploy rather than the first visitor.
+
+**What this is and is not.** The digest is unkeyed and lives in the file it
+describes, so it proves internal consistency, not authorship. It catches an
+accidental edit, a half-copied fragment, a file that skipped the loop by mistake,
+and a stale promotion — every failure mode that actually happens in a working
+repo. It does **not** stop someone who can write to `site/promoted/` from writing
+whatever they like and recomputing the digest, because nothing file-local can.
+Earlier versions of this table said "it was never gated" as though the check
+established provenance; it establishes integrity. Verified rows:
 
 | Action | Result |
 |---|---|
@@ -166,8 +198,14 @@ never satisfy "at least two decorrelated critics".
 
 Eligible judges = `panel_families − families({A, B})`. For a three-family panel,
 both candidates in a comparison must come from at most one family — hence one
-builder family here. Round 4 still escalated one comparison for the same
-structural reason, and the report says so rather than quietly averaging it away.
+builder family here, which is why round 4's other two comparisons reached
+verdicts with both families voting.
+
+Round 4's single escalation was **not** this constraint — it was a judge timeout
+(§2). The two causes produce the same CLI line ("only 1 family voted"), and an
+earlier version of this file read the structural explanation into an event that
+had a much more boring one. The evidence distinguishes them; prose about the
+evidence has to as well.
 
 ## 7. What the earlier rounds got wrong
 
@@ -180,9 +218,15 @@ Recorded because a demo that hides its failed runs is not evidence.
 | 1–3 | No part spec | Critics compared against a global direction with no statement of what *this* part is for. The verdicts were correspondingly vaguer. |
 | 4 | `[data-fragment]` chrome (§4) | Found by this round; fixed before promotion. |
 
-Rounds 1–3 are also why the archive is sparsely occupied (`occupied: 2 / 27`):
-three of the four rounds could not place an elite, because they could not measure
-one.
+The archive is sparsely occupied — `occupied: 2 / 27` — but **not** because of
+rounds 1–3, as an earlier version of this file claimed. Nothing persists an
+archive between runs: `ui_servo/cli/servo.py` calls `run_round` without an
+`archive=` argument and `control/servo.py` then builds a fresh `EliteArchive()`.
+Those two cells are round 4's own three survivors landing in two distinct cells,
+and no earlier round could have contributed to them whatever it measured.
+
+Cross-round quality-diversity is therefore not a thing this repo does yet. The
+grid is per-round, and saying otherwise made a limitation sound like a history.
 
 ## 8. The site
 

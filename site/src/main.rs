@@ -28,7 +28,6 @@ use error::{RouteError, StartupError};
 use maud::Markup;
 use state::AppState;
 use std::process::ExitCode;
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 /// Default listen port. `UI_SERVO_PORT` overrides.
@@ -101,15 +100,7 @@ fn app(state: AppState) -> Router {
         // Explicit before the directory: in dev, probe.js is read live from the
         // sibling `probe/` unit so editing the sensor does not need a rebuild.
         .route("/probe.js", get(probe_js))
-        // Promoted fragments live under assets/ because that is where the site's
-        // own files live, but they must never be reachable as static files: the
-        // whole point of `promoted::load` is that a fragment proves it was gated
-        // before it renders, and a raw ServeDir hit would skip the provenance
-        // check, the hash check and `frame()` in one request. Refused here, at
-        // the only place that could have leaked them.
-        .route("/fragments", get(promotion_is_not_static))
-        .route("/fragments/{*rest}", get(promotion_is_not_static))
-        .fallback_service(ServeDir::new(state.assets_dir()));
+        .fallback(get(static_asset));
 
     Router::new()
         .route("/", get(home))
@@ -169,14 +160,119 @@ async fn promoted_fragment(
     }
 }
 
-/// Promoted fragments are served by `/fragments/promoted/{part}`, which verifies
-/// provenance. The static path exists only to be closed.
-async fn promotion_is_not_static() -> RouteError {
-    RouteError::UngatedPromotion(
-        "promoted fragments are served by /fragments/promoted/{part}, which verifies \
-         their provenance; they are deliberately not reachable as static files"
-            .to_owned(),
+/// Serve one file from the asset directory, having proved it is in there.
+///
+/// This replaced `ServeDir`, and the reason is the third instance of one bug.
+/// Promoted markup must be unreachable except through the route that verifies
+/// it, and that was defended first by deny routes (beaten by percent-encoding:
+/// axum matches the raw path, `ServeDir` decodes it), then by moving the files
+/// out of the served tree and checking the roots at boot (beaten by a symlink
+/// inside the tree), then by also walking for symlinks at boot — beaten by
+/// creating the link before its target exists, and by creating it after boot.
+///
+/// The pattern is that a check performed *once*, about a filesystem that changes
+/// *continuously*, is a guess. So containment is now established per request, on
+/// the resolved path, at the moment of serving: canonicalise, and refuse
+/// anything that does not land inside the asset root. A symlink cannot widen
+/// that, whenever it was created, because the answer is computed after the
+/// kernel has followed it.
+///
+/// **What this deliberately does not defend, and why.** A *hardlink* from the
+/// served directory to a promoted file is served — verified, not overlooked. It
+/// is also indistinguishable, to any path-based check, from `cp promoted/hero.html
+/// assets/`: both are a regular file inside the root, with the right content, put
+/// there by somebody with write access. A rule that catches the hardlink and not
+/// the copy would buy nothing and read as coverage, which is the failure mode
+/// this file has already produced three times. So the boundary is stated instead:
+/// this defends against *reaching outside* the served directory, not against the
+/// contents of the served directory, and anyone who can write into it can serve
+/// whatever they like from it — including, no doubt, better markup than the loop
+/// would have picked.
+async fn static_asset(
+    State(state): State<AppState>,
+    uri: axum::http::Uri,
+) -> Result<Response, RouteError> {
+    let relative = uri.path().trim_start_matches('/');
+    let decoded = percent_decode(relative);
+
+    // Reject anything that is not a plain sequence of names before touching the
+    // disk. `..` is handled by the containment check below as well; this is the
+    // cheap half, and it keeps the error honest for the obvious cases.
+    if decoded.is_empty()
+        || decoded
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains('\0'))
+    {
+        return Err(RouteError::UnknownFragment(decoded));
+    }
+
+    let root = state
+        .assets_dir()
+        .canonicalize()
+        .map_err(|_| RouteError::UnknownFragment(decoded.clone()))?;
+    let resolved = root
+        .join(&decoded)
+        .canonicalize()
+        .map_err(|_| RouteError::UnknownFragment(decoded.clone()))?;
+
+    // The whole point: this is the *resolved* path, so a symlink has already
+    // been followed and cannot smuggle the answer past us.
+    if !resolved.starts_with(&root) || !resolved.is_file() {
+        return Err(RouteError::UnknownFragment(decoded));
+    }
+
+    let body = tokio::fs::read(&resolved)
+        .await
+        .map_err(|_| RouteError::UnknownFragment(decoded.clone()))?;
+    let content_type = match resolved.extension().and_then(|ext| ext.to_str()) {
+        Some("css") => "text/css; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("json") => "application/json",
+        Some("wasm") => "application/wasm",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    };
+    Ok((
+        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+        body,
     )
+        .into_response())
+}
+
+/// Percent-decoding, so containment is checked against the path the filesystem
+/// will actually see rather than the one the client typed.
+///
+/// Doing this ourselves is the lesson from the first bypass: the router matched
+/// the raw path while the file server matched the decoded one, and every rule
+/// written against the raw form was decoration.
+fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' if index + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or("");
+                match u8::from_str_radix(hex, 16) {
+                    Ok(byte) => {
+                        out.push(byte);
+                        index += 3;
+                    }
+                    Err(_) => {
+                        out.push(bytes[index]);
+                        index += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Serve `probe.js` from wherever it was resolved at startup.

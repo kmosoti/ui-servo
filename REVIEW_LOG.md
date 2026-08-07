@@ -342,3 +342,134 @@ This is the third correction to one sentence: "chosen by the panel" (false),
 "a human pick" (overstated), now attributed precisely. Who chose the artefact is
 the governance claim of the whole method, so it is worth getting exactly right
 rather than approximately.
+
+---
+
+## U19 — six-agent fan-out over the unreviewed range
+
+Six reviewers, one dimension each, all required to reproduce before reporting.
+Between them: 3 criticals in the isolation layer, 16 demonstrated bypasses of the
+architecture guard, 6 latent defects in the HTML rewrite, 10 weak tests found by
+mutation, and 10 documentation claims that did not survive checking. Reproduced
+every one before touching it.
+
+### The claim that was false
+
+`demo/README.md`, both promotion docstrings, and this log said or implied that a
+promoted file cannot be altered without detection. That is wrong, and it was
+demonstrated with a `<script>` tag: the digest is unkeyed and lives inside the
+file it describes, so anyone who can write the file can also write a matching
+hash. Verified end to end — boots clean, `HTTP 200`, script intact.
+
+The mechanism is worth keeping and worth describing correctly. It establishes
+**integrity, not authorship**: it catches a hand edit, a stale pick, a
+half-copied fragment, a bad merge, a truncated write — the failures that actually
+happen, all of which were previously silent. Closing the forgery gap needs a key
+the writer holds and the reader trusts, which is a deployment concern this repo
+does not invent. Every claim has been rewritten to say that.
+
+### The isolation layer, third rewrite
+
+`symlink_escaping` resolved the *link's own path* rather than its target, so
+`canonicalize` failing on a dangling link returned the link's own location —
+inside the root — and approved it. Every symlink whose target did not exist yet
+was waved through, which is precisely a checkout with a leftover
+`assets/fragments -> ../promoted` shim before the first promotion. The v1
+percent-encoding bypass was fully re-armed, and the dead v1 deny routes made it
+*look* protected by returning 500 on the un-encoded path.
+
+Two further cases no boot-time check could ever catch: a link created after boot,
+and a link innocent at boot and re-pointed afterwards.
+
+So the boot walk is no longer the defence. `ServeDir` is gone; assets are served
+by a handler that percent-decodes, canonicalises, and requires the result to be
+inside the asset root — computed per request, after the kernel has followed any
+link. The walk survives as a fail-fast diagnostic, now reading link *targets* and
+failing closed on unresolvable ones.
+
+A hardlink from the asset root to a promoted file is still served, and that is
+recorded rather than fixed: it is indistinguishable from `cp promoted/hero.html
+assets/`, both require write access to the served directory, and a rule that
+caught one and not the other would read as coverage while providing none.
+
+### The architecture guard, inverted
+
+Sixteen one-line bypasses, with three planted files proving the whole suite green
+while `ui_servo.cli.servo`, `playwright` and `pytest` were genuinely imported
+from `domain`, `control` and `ports`. `__import__`, `getattr(importlib, ...)`,
+`importlib.__dict__[...]`, `functools.partial`, `staticmethod`, walrus/annotated/
+tuple/for-target/default-argument bindings, `exec` of a literal import, and an
+alias chain longer than the resolver's hard-coded bound. One of them defeated the
+computed-name test as well.
+
+Three rounds of patching a resolver produced that. The rule no longer asks what a
+dynamic import imports: inside the hexagon, **holding a runtime importer is the
+violation**. `import_module`, `__import__`, `exec`, `eval` and `importlib` are
+refused outright; `from importlib.resources import files` stays legal;
+`# arch: allow <reason>` is the visible escape hatch. Twenty-one shapes are
+pinned as tests.
+
+### The HTML rewrite
+
+Nothing exploitable *through the gate* — 15,540 nh3-shaped tags and 3,776 real
+sanitised fragments produced zero divergences, because nh3 normalises the grammar
+this function sees. But the function is public and its docstrings claimed
+properties it did not have:
+
+- quadratic backtracking: 64 kB of `x<y ` took 23.8 s. `<` is now excluded from
+  every branch, so a failed match stops at the next `<`: 256 kB in 11 ms.
+- `<p data-span-id="y"title="x">` became `<ptitle="x">` — an element that does
+  not exist. The `/`-adjacency guard covered one case of a general problem.
+- `<p = data-span-id="x">` and friends silently kept the id.
+- Python's `\s` matched NBSP, which HTML does not treat as a separator; three
+  distinct corruptions followed.
+
+The walk now **fails closed**: a tag it cannot account for byte-for-byte is
+returned untouched, and `promote` refuses any body where a span id survived. Every
+parsing gap in this module is now a loud refusal instead of a quiet rewrite.
+
+### What mutation testing found
+
+Ten weak tests, six substantive. The worst three: `is_digest` had *zero*
+coverage (replacing its body with `!value.is_empty()` left everything green);
+`TestTheStaticRootCannotServeAPick` passed with static serving deleted from the
+router entirely, because every assertion in it was negative; and both CSS-scanner
+fixes from U18 were unexecuted, because the shipped stylesheet contains no
+at-rule or custom-property sensor rule. All three now have the coverage they
+claimed. The CSS scanner was extracted so it can be run against fixtures rather
+than only against a sheet that happens not to exercise it.
+
+Also fixed: a `set_current_dir` in a Rust test with no RAII guard (process-wide,
+multi-threaded runner, restore skipped on panic), a symlink test that passed with
+the walk's recursion deleted, and a parametrised digest test whose three cases
+were one test wearing three names.
+
+### What the documentation got wrong
+
+Ten discrepancies, two of them material:
+
+1. **The round-4 escalation was a judge timeout, not the staffing constraint.**
+   `turn-4.jsonl` seq 58: `{"family": "gemini", "rc": 124, "reason": "agy bridge
+   timed out"}`. Both families were eligible and both were asked. The CLI's own
+   line says "only 1 family **voted**"; three documents glossed that as "one
+   family **eligible**" and built an argument on it. Corrected in `demo/README.md`
+   (three places), `decision.md`, and above. The protocol still did the right
+   thing — it refused a one-vote verdict — and it is a better story: the guard
+   fires on a transport failure, not only on the case it was designed for.
+2. **`occupied: 2 / 27` has nothing to do with rounds 1–3.** No archive persists
+   between runs; `cli/servo.py` passes no `archive=` and `control/servo.py` builds
+   a fresh grid. Those two cells are round 4's own survivors. Cross-round
+   quality-diversity is not implemented, and saying otherwise turned a limitation
+   into a history.
+
+Also corrected: the README claimed the blind *prompts* were committed (only the
+staged artefacts are — `critique.py` never emits the prompt as a signal);
+`SKILL.md` described the hash as covering the fragment content alone, which the
+server now refuses; `ARCHITECTURE.md` named four port interfaces, three of which
+never existed; the §2 transcript omitted a line the CLI always prints; and
+"release mode" meant `UI_SERVO_DEV`, not the cargo profile.
+
+And the one that matters most for the method: `SKILL.md` lists "do not break a
+tie yourself" as a non-negotiable invariant, and `README.md` says the loop "will
+not pick". The agent picked anyway. `decision.md` and `demo/README.md` now record
+that as an invariant violation rather than as the design operating to spec.

@@ -9,12 +9,26 @@ provenance comment the Rust side verifies on every request.
 
     <!-- ui-servo: gated round=<n> sha256=<hash> -->
 
-The comment is not decoration. The sanitiser is Python and runs here, once; the
-server is Rust and runs continuously; the comment plus the hash is the only
-evidence the running site has that the markup it is about to serve ever passed a
-gate at all. Editing a promoted file by hand breaks the hash, which is the
-intended outcome -- an ungated edit and a hand-written fragment are the same
-thing wearing different clothes.
+The comment is not decoration, and it is also not a signature. Be precise about
+which, because earlier versions of this docstring were not.
+
+The digest is unkeyed and lives inside the file it describes, so it establishes
+*integrity*, not *authorship*. It catches: a hand edit, a half-copied fragment, a
+stale promotion, a file that skipped the loop by mistake, a truncated write, a
+line-ending mangling. Those are the failures that happen in a working repo, they
+are all silent, and every one of them is now loud.
+
+It does not catch a deliberate forgery. Anyone who can write to the promotion
+directory can also write a fresh digest -- ``sha256`` of a preimage this file
+documents in full -- and the server will serve it. That was demonstrated in
+review with a `<script>` tag and a hand-computed hash. No file-local check can do
+better: a hash that sits next to the thing it vouches for proves the two agree,
+never that either is authorised. Closing it needs a key the writer holds and the
+reader trusts, which is a deployment concern this module deliberately does not
+invent.
+
+So: the provenance comment tells you the markup on disk is the markup that was
+gated. It does not tell you nobody replaced both.
 
 Standard library, domain and ports only. The sanitiser arrives as a port, so a
 promotion can be dry-run against a fake in tests without touching a real file;
@@ -63,7 +77,7 @@ def _checked(value: str, *, field: str) -> str:
 DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/promoted")
 
 _START_TAG: Final[re.Pattern[str]] = re.compile(
-    r"""<[A-Za-z][-A-Za-z0-9]*(?:"[^"]*"|'[^']*'|[^>"'])*/?>"""
+    r"""<[A-Za-z][-A-Za-z0-9]*(?:"[^"<]*"|'[^'<]*'|[^<>"'])*/?>"""
 )
 """A start tag, quote-aware, so a `>` inside a quoted value does not end it.
 
@@ -74,10 +88,28 @@ Quote-awareness is not fussiness. `<[^>]*>` ends the tag at the first `>` even
 inside a value, so `<section title="a > b" data-span-id="x">` would keep its
 stale id -- and the failure is silent, because the result still sanitises, still
 hashes and still serves.
+
+Excluding `<` from every branch is not decoration either. With it allowed, each
+`<` that begins no tag -- a truncated fragment, an unterminated quote, prose
+containing `a<b` -- made the alternation rescan to end of input on failure,
+quadratically: 64 kB of `x<y ` took 23.8 seconds. A start tag cannot contain a
+bare `<` anyway (nh3 escapes it), so a failed match now stops at the next `<`
+instead of at the end of the document.
 """
 
+_HTML_SPACE: Final[str] = r"[ \t\n\f\r]"
+r"""HTML5 whitespace, spelled out.
+
+Python's ``\s`` is Unicode-aware and matches U+00A0, U+000B and U+001C-U+001F,
+none of which separate attributes in HTML -- a parser reads them as part of the
+attribute *name*. Using ``\s`` here meant a non-breaking space between two
+attributes made this function delete the wrong one, absorb an attribute into the
+element name, or invent an element that had not existed. Three separate
+corruptions from one character class."""
+
 _ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
-    r"""\s+(?P<name>[^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?""",
+    rf"""{_HTML_SPACE}+(?P<name>[^ \t\n\f\r=/>]+)"""
+    rf"""(?:{_HTML_SPACE}*={_HTML_SPACE}*(?:"[^"]*"|'[^']*'|[^ \t\n\f\r>]*))?""",
     re.IGNORECASE,
 )
 """One attribute, name captured, value consumed whole whatever its quoting.
@@ -112,8 +144,25 @@ against :mod:`html.parser` found it in 4000 cases; reading the code did not.
 """
 
 
+_TAG_END: Final[re.Pattern[str]] = re.compile(rf"""{_HTML_SPACE}*/?>\Z""")
+"""What a start tag must end with once every attribute has been consumed."""
+
+
 def _strip_tag_attribute(tag: str) -> str:
-    """Rebuild one start tag without its span id, leaving every value intact."""
+    """Rebuild one start tag without its span id, or return it untouched.
+
+    **Fails closed.** If the attribute walk cannot account for every byte between
+    the element name and the closing `>`, the tag is returned exactly as it came
+    in. The alternative -- splice together the part that parsed and append the
+    rest -- is what produced the worst class of bug in this function's history:
+    `<p data-span-id="y"title="x">` became `<ptitle="x">`, an element that does
+    not exist, and `<p = data-span-id="x">` silently kept its id. Both look like
+    ordinary output, both still hash, both still serve.
+
+    A no-op leaves a stale span id in place, which `promote` then refuses
+    outright. That is a worse-looking failure and a much better one: it is
+    visible.
+    """
     name = _TAG_NAME.match(tag)
     if name is None:
         return tag
@@ -128,13 +177,16 @@ def _strip_tag_attribute(tag: str) -> str:
         position = attribute.end()
 
     tail = tag[position:]
-    # Removing an attribute can change the meaning of the one before it. An
-    # unquoted value does not end at `/`, so deleting the span id from
-    # `<img alt=x data-span-id="1"/>` leaves `<img alt=x/>`, and `alt` becomes
-    # `x/`. nh3 quotes every value it emits, so this cannot arise from a gated
-    # candidate today -- but "today" is doing a lot of work in that sentence, and
-    # a space costs nothing. Found by differential-fuzzing against html.parser.
-    if dropped and tail.startswith("/") and out[-1] and not out[-1][-1].isspace():
+    if not _TAG_END.match(tail):
+        # Unconsumable input: something in this tag is not an attribute as far as
+        # this scanner is concerned, so it does not get to guess.
+        return tag
+    if not dropped:
+        return tag
+    # Removing an attribute can change the meaning of the one before it: an
+    # unquoted value ends only at whitespace or `>`, so closing up the gap can
+    # extend the previous value or the element name. Keep one separator.
+    if tail.startswith("/") and out[-1] and out[-1][-1] not in " \t\n\f\r":
         out.append(" ")
     out.append(tail)
     return "".join(out)
@@ -148,6 +200,20 @@ def strip_span_ids(markup: str) -> str:
     not a mistake -- and so is any other attribute's value.
     """
     return _START_TAG.sub(lambda tag: _strip_tag_attribute(tag.group(0)), markup)
+
+
+_SPAN_ID_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
+    rf"""{_HTML_SPACE}{_SPAN_ID}{_HTML_SPACE}*=""", re.IGNORECASE
+)
+"""Used to check the strip's own work, not to do it.
+
+:func:`_strip_tag_attribute` fails closed: a tag it cannot fully account for is
+returned untouched, which leaves the id in place. That is the right call at the
+tag level -- a visible leftover beats a silent splice -- but it must not then be
+promoted, so :func:`promote` refuses. The two halves together turn every parsing
+gap in this module from "corrupt the markup quietly" into "refuse the promotion
+loudly", which is the only trade this file should ever make.
+"""
 
 
 class PromotionRefused(Exception):
@@ -181,18 +247,33 @@ def body_digest(markup: str, *, part: str, round_id: str) -> str:
     Editing either produces a mismatch, which is the same refusal an edited body
     already got.
 
-    Newline-separated with a version tag, and every field is a `_checked` token,
-    so no field can contain a separator and shift the boundary between two
-    others.
+    Newline-separated with a version tag, and the fields are `_checked` *here*
+    rather than only in the callers: with `part` free-form, ``("hero\n4", "x")``
+    and ``("hero", "4")`` produce the same preimage, so a third caller would
+    inherit an ambiguous digest silently. The check is cheap; the docstring
+    claiming an invariant the function did not enforce was not.
+
+    Line endings are normalised first. Python writes with ``newline=None``, which
+    emits CRLF on Windows, and git with ``core.autocrlf=true`` rewrites the
+    committed file on checkout -- so without this, the promoter's own output is
+    refused by its own reader as "edited after promotion", which is both wrong
+    and an alarming thing to tell somebody.
     """
-    preimage = "\n".join((DIGEST_VERSION, part, round_id, markup.strip()))
+    part = _checked(part, field="part")
+    round_id = _checked(round_id, field="round")
+    preimage = "\n".join((DIGEST_VERSION, part, round_id, _normalise_newlines(markup).strip()))
     return sha256(preimage.encode("utf-8")).hexdigest()
+
+
+def _normalise_newlines(markup: str) -> str:
+    """CRLF and CR both become LF, so the hash is about content, not checkout."""
+    return markup.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def render_promoted_file(markup: str, *, part: str, round_id: str) -> str:
     part = _checked(part, field="part")
     round_id = _checked(round_id, field="round")
-    body = markup.strip()
+    body = _normalise_newlines(markup).strip()
     digest = body_digest(body, part=part, round_id=round_id)
     header = PROVENANCE_TEMPLATE.format(round=round_id, digest=digest)
     return f"{header}\n{body}\n"
@@ -216,12 +297,25 @@ def promote(
             + "\n  ".join(violation.detail for violation in result.violations)
         )
 
-    fragments_dir.mkdir(parents=True, exist_ok=True)
-    path = fragments_dir / f"{part}.html"
     # Strip after the gate, so what the sanitiser approved is what gets hashed.
     body = strip_span_ids(result.cleaned_html or markup).strip()
+    if _SPAN_ID_ATTRIBUTE.search(body):
+        raise PromotionRefused(
+            f"{part}: a data-span-id survived the strip, so this markup would be served "
+            "carrying two join keys and the probe would file live readings under a "
+            "candidate that no longer exists. The strip fails closed on tags it cannot "
+            "fully parse, so this means the markup contains something it does not "
+            "understand -- report the fragment rather than hand-editing it."
+        )
+
+    fragments_dir.mkdir(parents=True, exist_ok=True)
+    path = fragments_dir / f"{part}.html"
+    # newline="" so the bytes written are exactly the bytes hashed, on every
+    # platform. The default translates "\n" to os.linesep.
     path.write_text(
-        render_promoted_file(body, part=part, round_id=round_id), encoding="utf-8"
+        render_promoted_file(body, part=part, round_id=round_id),
+        encoding="utf-8",
+        newline="",
     )
     return Promotion(
         part=part,

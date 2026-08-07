@@ -22,6 +22,7 @@ promotion can be dry-run against a fake in tests without touching a real file.
 
 import argparse
 import importlib
+import re
 import sys
 from dataclasses import dataclass
 from hashlib import sha256
@@ -32,6 +33,26 @@ from ui_servo.domain.contract import DirectionContract
 from ui_servo.ports.sanitizer import SanitizerPort
 
 PROVENANCE_TEMPLATE: Final[str] = "<!-- ui-servo: gated round={round} sha256={digest} -->"
+
+_SAFE_TOKEN: Final[re.Pattern[str]] = re.compile(r"\A[A-Za-z0-9._-]{1,64}\Z")
+"""What may appear in a path component or inside the provenance comment.
+
+Both `part` and `round_id` reach a filesystem path *and* the first line of a
+served file, so both are slugs or nothing. Unvalidated they are two separate
+holes: a `round_id` containing a newline closes the comment and appends markup
+that the recorded hash still vouches for -- the sanitiser ran before that text
+existed -- and a `part` containing `..` or a slash escapes the fragments
+directory in both the writer and the reader.
+"""
+
+
+def _checked(value: str, *, field: str) -> str:
+    if not _SAFE_TOKEN.match(value):
+        raise PromotionRefused(
+            f"{field} must be 1-64 characters of [A-Za-z0-9._-]; got {value!r}. "
+            "It becomes both a path component and part of the provenance comment."
+        )
+    return value
 
 DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/assets/fragments")
 
@@ -59,6 +80,7 @@ def body_digest(markup: str) -> str:
 
 
 def render_promoted_file(markup: str, *, round_id: str) -> str:
+    round_id = _checked(round_id, field="round")
     body = markup.strip()
     header = PROVENANCE_TEMPLATE.format(round=round_id, digest=body_digest(body))
     return f"{header}\n{body}\n"
@@ -73,6 +95,8 @@ def promote(
     fragments_dir: Path = DEFAULT_FRAGMENTS_DIR,
 ) -> Promotion:
     """Gate the pick, then write it where the site will serve it."""
+    part = _checked(part, field="part")
+    round_id = _checked(round_id, field="round")
     result = sanitizer.check(markup)
     if not result.accepted:
         raise PromotionRefused(

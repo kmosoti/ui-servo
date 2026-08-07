@@ -5,8 +5,13 @@ use crate::layout::{PageMeta, shell};
 use crate::state::AppState;
 use maud::{Markup, html};
 
-pub fn render(state: &AppState) -> Markup {
-    shell(
+pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
+    // A hero that exists but cannot prove it was gated fails the page rather
+    // than quietly rendering the placeholder: "nobody has picked yet" and
+    // "someone edited the pick" must not look the same to a visitor.
+    let hero = fragments::promoted::render_or_placeholder(state.assets_dir(), "hero")
+        .map_err(|error| crate::error::RouteError::UngatedPromotion(error.to_string()))?;
+    Ok(shell(
         state,
         PageMeta {
             title: "Index",
@@ -18,7 +23,7 @@ pub fn render(state: &AppState) -> Markup {
             // promoted, and the hand-written placeholder until then. Same frame,
             // same span id, same sensors either way — a promoted fragment is not
             // a special case of a page, it is just the page.
-            @if let Some(promoted) = fragments::promoted::render_or_placeholder(state.assets_dir(), "hero") {
+            @if let Some(promoted) = hero {
                 (promoted)
             } @else {
             article class="my-xl" {
@@ -63,5 +68,5 @@ pub fn render(state: &AppState) -> Markup {
                 (super::slot("slot-colophon", fragments::render("colophon").unwrap_or_default()))
             }
         },
-    )
+    ))
 }

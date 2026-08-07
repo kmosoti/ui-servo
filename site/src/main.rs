@@ -101,6 +101,14 @@ fn app(state: AppState) -> Router {
         // Explicit before the directory: in dev, probe.js is read live from the
         // sibling `probe/` unit so editing the sensor does not need a rebuild.
         .route("/probe.js", get(probe_js))
+        // Promoted fragments live under assets/ because that is where the site's
+        // own files live, but they must never be reachable as static files: the
+        // whole point of `promoted::load` is that a fragment proves it was gated
+        // before it renders, and a raw ServeDir hit would skip the provenance
+        // check, the hash check and `frame()` in one request. Refused here, at
+        // the only place that could have leaked them.
+        .route("/fragments", get(promotion_is_not_static))
+        .route("/fragments/{*rest}", get(promotion_is_not_static))
         .fallback_service(ServeDir::new(state.assets_dir()));
 
     Router::new()
@@ -115,7 +123,7 @@ fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn home(State(state): State<AppState>) -> Markup {
+async fn home(State(state): State<AppState>) -> Result<Markup, RouteError> {
     pages::home::render(&state)
 }
 
@@ -155,6 +163,16 @@ async fn promoted_fragment(
             Err(RouteError::UngatedPromotion(error.to_string()))
         }
     }
+}
+
+/// Promoted fragments are served by `/fragments/promoted/{part}`, which verifies
+/// provenance. The static path exists only to be closed.
+async fn promotion_is_not_static() -> RouteError {
+    RouteError::UngatedPromotion(
+        "promoted fragments are served by /fragments/promoted/{part}, which verifies \
+         their provenance; they are deliberately not reachable as static files"
+            .to_owned(),
+    )
 }
 
 /// Serve `probe.js` from wherever it was resolved at startup.

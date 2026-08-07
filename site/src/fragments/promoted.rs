@@ -34,6 +34,12 @@ const PROVENANCE_PREFIX: &str = "<!-- ui-servo: gated";
 pub enum PromotionError {
     #[error("no promoted fragment for part {0:?}")]
     NotPromoted(String),
+    #[error(
+        "part {0:?} is not a slug; axum percent-decodes path captures, so a part \
+         carrying a slash, a dot-dot or an absolute prefix would read outside the \
+         promotion directory"
+    )]
+    NotASlug(String),
     #[error("promoted fragment {0:?} is unreadable: {1}")]
     Unreadable(String, String),
     #[error(
@@ -56,8 +62,24 @@ pub struct Promoted {
     pub markup: String,
 }
 
-fn promoted_path(assets_dir: &Path, part: &str) -> PathBuf {
-    assets_dir.join(PROMOTED_DIR).join(format!("{part}.html"))
+/// The same grammar the writer enforces (`ui_servo/control/promote.py`): a part
+/// is a slug or it is refused. Checked here rather than trusted from the URL,
+/// because this is the side that touches the filesystem.
+fn is_slug(part: &str) -> bool {
+    !part.is_empty()
+        && part.len() <= 64
+        && part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        && part != "."
+        && part != ".."
+}
+
+fn promoted_path(assets_dir: &Path, part: &str) -> Result<PathBuf, PromotionError> {
+    if !is_slug(part) {
+        return Err(PromotionError::NotASlug(part.to_owned()));
+    }
+    Ok(assets_dir.join(PROMOTED_DIR).join(format!("{part}.html")))
 }
 
 /// Read the provenance comment's `round=` and `sha256=` values, if both are there.
@@ -97,7 +119,7 @@ pub fn sha256_of(body: &str) -> String {
 
 /// Load a promoted fragment, verifying it was gated and unedited since.
 pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
-    let path = promoted_path(assets_dir, part);
+    let path = promoted_path(assets_dir, part)?;
     if !path.is_file() {
         return Err(PromotionError::NotPromoted(part.to_owned()));
     }
@@ -138,13 +160,18 @@ pub fn render(assets_dir: &Path, part: &str) -> Result<Markup, PromotionError> {
 /// to its built-in placeholder. A *broken* promotion is not `None` — it is
 /// logged and still `None`, because refusing to serve is the point, but the page
 /// should say so rather than silently pretending nothing was ever picked.
-pub fn render_or_placeholder(assets_dir: &Path, part: &str) -> Option<Markup> {
+pub fn render_or_placeholder(assets_dir: &Path, part: &str) -> Result<Option<Markup>, PromotionError> {
     match render(assets_dir, part) {
-        Ok(markup) => Some(markup),
-        Err(PromotionError::NotPromoted(_)) => None,
+        Ok(markup) => Ok(Some(markup)),
+        // Nothing has been picked yet. The placeholder is the honest answer.
+        Err(PromotionError::NotPromoted(_)) => Ok(None),
+        // A file exists and cannot prove itself. Falling back here would let a
+        // tampered hero render as a page that merely looks unfinished, which is
+        // the one outcome the provenance check exists to prevent -- so the
+        // caller is handed the error and the page fails loudly instead.
         Err(error) => {
             warn!(%error, part, "refusing to serve a promoted fragment");
-            None
+            Err(error)
         }
     }
 }
@@ -200,7 +227,7 @@ mod tests {
             load(&root, "hero").unwrap_err(),
             PromotionError::NotPromoted("hero".into())
         );
-        assert!(render_or_placeholder(&root, "hero").is_none());
+        assert!(render_or_placeholder(&root, "hero").unwrap().is_none());
     }
 
     #[test]
@@ -212,6 +239,26 @@ mod tests {
             PromotionError::MissingProvenance("hero".into())
         );
         assert!(render(&root, "hero").is_err());
+    }
+
+    #[test]
+    fn a_corrupt_promotion_is_an_error_not_a_placeholder() {
+        // The distinction the review caught: "nobody picked yet" is None,
+        // "someone edited the pick" is an error the page must not paper over.
+        let root = temp();
+        write(&root, "hero", "<p class=\"text-md\">never gated</p>");
+        assert!(render_or_placeholder(&root, "hero").is_err());
+    }
+
+    #[test]
+    fn a_part_that_is_not_a_slug_is_refused_before_touching_the_disk() {
+        let root = temp();
+        for hostile in ["../../etc/passwd", "a/b", "..", "", "with space"] {
+            assert!(
+                matches!(load(&root, hostile), Err(PromotionError::NotASlug(_))),
+                "{hostile:?} was not refused"
+            );
+        }
     }
 
     #[test]

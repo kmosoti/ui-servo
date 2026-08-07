@@ -80,6 +80,13 @@ against a checkout and has no meaning in a deployed wheel."""
 
 PROBE_URL: Final[str] = "/assets/probe.js"
 TOKENS_URL: Final[str] = "/assets/tokens.css"
+
+SITE_CSS: Final[Path] = Path(__file__).resolve().parents[2] / "site" / "assets" / "site.css"
+"""The site's own stylesheet, inlined into every preview.
+
+The contract emits custom properties; ``site.css`` is what turns them into the
+utility classes a fragment author may use. Judging a candidate without it
+measures the preview server, not the candidate."""
 CANDIDATE_SUFFIXES: Final[tuple[str, ...]] = (".html", ".htm", "")
 """Tried in order, so ``/candidate/hero`` finds ``hero.html`` and
 ``/candidate/hero.html`` finds it too -- the name in the URL is the name a
@@ -194,6 +201,7 @@ def render_shell(
     *,
     title: str,
     tokens_css: str,
+    site_css: str = "",
     body_html: str,
     dev: bool,
     config: Mapping[str, Any],
@@ -229,6 +237,13 @@ def render_shell(
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{_escape(title)}</title>\n"
         f'<style data-ui-servo="tokens">\n{tokens_css}</style>\n'
+        # The utility classes the allowlist is derived from live in site.css,
+        # not in the token sheet. Without it a candidate renders as unstyled
+        # markup: every `text-*`, `type-*` and `p-*` is inert, the style sample
+        # records contrast 1.0, and the panel ends up criticising the preview
+        # instead of the candidate. The judges' verdicts are only about the
+        # fragment if the fragment is dressed the way the site dresses it.
+        f'<style data-ui-servo="site">\n{site_css}</style>\n'
         f"{sensor}\n"
         f"{head_extra}\n"
         "</head>\n"
@@ -442,6 +457,7 @@ def create_app(
     *,
     probe_js: Path | None = None,
     fixture_html: Path | None = FIXTURE_HTML,
+    site_css: Path | None = SITE_CSS,
 ) -> FastAPI:
     """Build the preview app around one contract, one store and one turn.
 
@@ -455,6 +471,11 @@ def create_app(
         probe_source(probe_js)  # fail fast: the shell must not promise what it lacks
 
     tokens_css = contract.to_css_custom_properties()
+    # Read once at construction: a candidate rendered without the site's own
+    # utility classes is not the candidate anybody will ship.
+    site_css_text = ""
+    if site_css is not None and Path(site_css).is_file():
+        site_css_text = Path(site_css).read_text(encoding="utf-8")
     health = IngestHealth()
     app = FastAPI(title="ui-servo preview", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.candidates_dir = candidates_dir
@@ -476,6 +497,7 @@ def create_app(
             render_shell(
                 title=f"candidate {name}",
                 tokens_css=tokens_css,
+                site_css=site_css_text,
                 head_extra=head_extra,
                 body_attrs=body_attrs,
                 body_html=body_html,
@@ -506,6 +528,7 @@ def create_app(
             render_shell(
                 title="ui-servo probe fixture",
                 tokens_css=tokens_css,
+                site_css=site_css_text,
                 head_extra=head_extra,
                 body_attrs=body_attrs,
                 body_html=body_html,

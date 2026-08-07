@@ -114,9 +114,28 @@ class TestPromotion:
         assert "data-span-id" not in strip_span_ids(spelling).lower()
 
     def test_stripping_leaves_lookalike_attributes_alone(self) -> None:
-        """`data-span-id-note` and `id` are different attributes, not this one."""
+        """`data-span-idea` and `id` are different attributes, not this one."""
         kept = '<section id="hero" data-span-idea="x" aria-describedby="data-span-id">y</section>'
         assert strip_span_ids(kept) == kept
+
+    @pytest.mark.parametrize(
+        "prose",
+        [
+            '<p>the attribute data-span-id="hero" is the join key</p>',
+            '<pre>&lt;section data-span-id="x"&gt;</pre>',
+            "<p>Set <code>data-span-id='a'</code> on the root.</p>",
+            '<!-- a note about data-span-id="x" -->',
+        ],
+    )
+    def test_prose_that_mentions_the_attribute_is_not_rewritten(self, prose: str) -> None:
+        """A fragment documenting the probe is a fragment, not a mistake.
+
+        The strip runs over start tags only. Applied to the whole document it
+        would quietly edit body text — and quietly is the problem: the result
+        still sanitises, still hashes and still serves, so nothing downstream
+        would ever report the corruption.
+        """
+        assert strip_span_ids(prose) == prose
 
     def test_promoting_twice_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         promote(GOOD, part="hero", round_id="1", sanitizer=_Accepting(), fragments_dir=tmp_path)

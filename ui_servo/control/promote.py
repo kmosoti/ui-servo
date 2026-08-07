@@ -57,7 +57,27 @@ DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/assets/fragments")
 _SPAN_ID_ATTR: Final[re.Pattern[str]] = re.compile(
     r"""\s+data-span-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE
 )
-"""A candidate's own span id, which does not survive into the site.
+"""A candidate's own span id, *as written inside a start tag*.
+
+During a round the id is the join key: the probe files every reading under it and
+the panel cites it in verdicts. After promotion it is a lie. The server's `frame`
+stamps a *fresh* id on the element it serves, so a retained inner id means the
+page carries two, and the probe -- which reads the nearest one -- attributes live
+evidence to `hero-v0`, a candidate that stopped existing when the round ended.
+The symptom is not an error; it is a quietly mis-filed sensor reading, which is
+worse. Stripping here rather than in the server keeps the served bytes and the
+hashed bytes identical.
+
+Applied only within `<...>`, via :func:`strip_span_ids`. Run over the whole
+document this pattern also eats prose: a fragment whose text *mentions* the
+attribute -- ``the attribute data-span-id="hero" is the join key``, or an escaped
+code sample -- would be silently rewritten, and silently is the operative word,
+because the result still sanitises, still hashes and still serves.
+"""
+
+_TAG: Final[re.Pattern[str]] = re.compile(r"<[^>!?][^>]*>")
+"""A start or end tag. Comments, doctypes and processing instructions are skipped
+by the leading exclusion: they are not elements, and their contents are text.
 
 During a round the id is the join key: the probe files every reading under it and
 the panel cites it in verdicts. After promotion it is a lie. The server's `frame`
@@ -71,8 +91,13 @@ hashed bytes identical.
 
 
 def strip_span_ids(markup: str) -> str:
-    """Remove candidate span ids so the server's fresh one is the only one."""
-    return _SPAN_ID_ATTR.sub("", markup)
+    """Remove candidate span ids so the server's fresh one is the only one.
+
+    Only attributes are touched. Text that happens to talk about the attribute is
+    left exactly as written -- a fragment documenting the probe is a fragment,
+    not a mistake.
+    """
+    return _TAG.sub(lambda tag: _SPAN_ID_ATTR.sub("", tag.group(0)), markup)
 
 
 class PromotionRefused(Exception):

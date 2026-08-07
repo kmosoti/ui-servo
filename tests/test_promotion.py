@@ -8,6 +8,7 @@ that is perfectly valid fails to serve.
 
 import re
 from hashlib import sha256
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,44 @@ _SPAN_ID = re.compile(r"data-span-id\s*=", re.IGNORECASE)
 """What must be gone from a promoted file, and present nowhere it was not."""
 
 GOOD = '<section data-span-id="hero-v2" class="my-3xl"><h1 class="type-display">Hi</h1></section>'
+
+
+def _parsed(markup: str) -> list[object]:
+    """What a real HTML parser sees, minus the span id.
+
+    The point of comparing through :mod:`html.parser` rather than comparing
+    strings is that it is indifferent to the things that do not matter
+    (whitespace between attributes, quote style) and unforgiving about the things
+    that do (which element, which attributes, what text). Two bugs in this
+    module's rewrite were invisible to inspection and obvious to this comparison.
+    """
+
+    class Reader(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.events: list[object] = []
+
+        def _start(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            kept = sorted((k, v) for k, v in attrs if k != "data-span-id")
+            self.events.append(("start", tag, kept))
+
+        handle_starttag = _start
+        handle_startendtag = _start
+
+        def handle_endtag(self, tag: str) -> None:
+            self.events.append(("end", tag))
+
+        def handle_data(self, data: str) -> None:
+            if data.strip():
+                self.events.append(("text", data))
+
+        def handle_comment(self, data: str) -> None:
+            self.events.append(("comment", data))
+
+    reader = Reader()
+    reader.feed(markup)
+    reader.close()
+    return reader.events
 
 
 class _Accepting:
@@ -159,6 +198,32 @@ class TestPromotion:
         hashes and still serves, so nothing downstream would ever report it.
         """
         assert strip_span_ids(untouched) == untouched
+
+    @pytest.mark.parametrize(
+        "markup",
+        [
+            # Attributes separated by something other than a space. HTML allows
+            # any whitespace, and an earlier version located the end of the tag
+            # name with `tag.find(" ")` — which, in a tag written across lines,
+            # first hits a space *inside* whichever value happens to contain one.
+            '<img\ndata-span-id="x"\ntitle="a b">',
+            '<img\tdata-span-id="x"\ttitle="a b">',
+            '<section\n  data-span-id="x"\n  class="my-lg"\n>text</section>',
+            # An unquoted value left adjacent to `/>`: `alt=x/` is a different
+            # value from `alt=x`.
+            '<img alt=x data-span-id="1"/>',
+        ],
+    )
+    def test_removing_the_id_changes_nothing_else_a_parser_can_see(self, markup: str) -> None:
+        """Differential check against a real parser, not against my reading of it.
+
+        Both bugs above were found by fuzzing this comparison over generated
+        tags; neither was visible by inspecting the regex. The property is the
+        one that actually matters: after the strip, every element, every other
+        attribute and all text must parse identically.
+        """
+        assert _parsed(strip_span_ids(markup)) == _parsed(markup)
+        assert not _SPAN_ID.search(strip_span_ids(markup))
 
     def test_promoting_twice_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         promote(GOOD, part="hero", round_id="1", sanitizer=_Accepting(), fragments_dir=tmp_path)

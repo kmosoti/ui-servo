@@ -91,16 +91,44 @@ that stopped existing when the round ended. Not an error: a mis-filed reading,
 which is quieter and worse."""
 
 
+_TAG_NAME: Final[re.Pattern[str]] = re.compile(r"<[A-Za-z][-A-Za-z0-9]*")
+"""Just the `<` and the element name, so the attribute walk starts in the right
+place.
+
+This replaced `tag.find(" ")`, which was wrong in a way worth keeping a note
+about: HTML separates attributes with *any* whitespace, so a tag written across
+several lines has no space until whichever quoted value happens to contain one.
+`<img\\ndata-span-id="x"\\ntitle="a b">` therefore began its walk in the middle of
+`title`, and the rebuilt tag was garbage. Differential-fuzzing the rewrite
+against :mod:`html.parser` found it in 4000 cases; reading the code did not.
+"""
+
+
 def _strip_tag_attribute(tag: str) -> str:
     """Rebuild one start tag without its span id, leaving every value intact."""
-    name_end = tag.find(" ") if " " in tag else len(tag) - 1
-    out = [tag[:name_end]]
-    position = name_end
+    name = _TAG_NAME.match(tag)
+    if name is None:
+        return tag
+    out = [name.group(0)]
+    position = name.end()
+    dropped = False
     while (attribute := _ATTRIBUTE.match(tag, position)) is not None:
-        if attribute.group("name").lower() != _SPAN_ID:
+        if attribute.group("name").lower() == _SPAN_ID:
+            dropped = True
+        else:
             out.append(attribute.group(0))
         position = attribute.end()
-    out.append(tag[position:])
+
+    tail = tag[position:]
+    # Removing an attribute can change the meaning of the one before it. An
+    # unquoted value does not end at `/`, so deleting the span id from
+    # `<img alt=x data-span-id="1"/>` leaves `<img alt=x/>`, and `alt` becomes
+    # `x/`. nh3 quotes every value it emits, so this cannot arise from a gated
+    # candidate today -- but "today" is doing a lot of work in that sentence, and
+    # a space costs nothing. Found by differential-fuzzing against html.parser.
+    if dropped and tail.startswith("/") and out[-1] and not out[-1][-1].isspace():
+        out.append(" ")
+    out.append(tail)
     return "".join(out)
 
 

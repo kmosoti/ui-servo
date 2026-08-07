@@ -51,6 +51,19 @@ pub enum StartupError {
     )]
     UngatedPromotion(String),
 
+    /// The promotion directory resolved to somewhere inside the static root.
+    ///
+    /// The separation is the entire defence: promoted markup is unservable
+    /// without a provenance check *because* no `ServeDir` can reach it. Route
+    /// denials were tried first and lost to percent-encoding. Configuration can
+    /// silently undo the replacement, so it is checked rather than assumed.
+    #[error(
+        "the promotion directory {promoted} is inside the asset root {assets}, so the static \
+         file server could hand out promoted markup without its provenance ever being checked. \
+         Point UI_SERVO_ASSETS or UI_SERVO_PROMOTED_ROOT somewhere they do not overlap."
+    )]
+    PromotedInsideAssets { promoted: PathBuf, assets: PathBuf },
+
     #[error("UI_SERVO_PORT={0:?} is not a port number")]
     BadPort(String),
 

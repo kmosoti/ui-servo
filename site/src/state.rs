@@ -70,6 +70,20 @@ impl AppState {
             return Err(StartupError::MissingAssets(assets_dir));
         }
 
+        // Structural, so verified rather than trusted: if the promotion
+        // directory has been configured back inside the served root, every
+        // provenance guarantee in this binary is one static GET away from
+        // irrelevant. Compared after canonicalisation, because `assets/../site`
+        // and `site` are the same directory to a file server.
+        let promoted_dir = promoted_root.join(promoted::PROMOTED_DIR);
+        let real = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if real(&promoted_dir).starts_with(real(&assets_dir)) {
+            return Err(StartupError::PromotedInsideAssets {
+                promoted: promoted_dir,
+                assets: assets_dir,
+            });
+        }
+
         let color_scheme = color_scheme(
             &assets_dir.join(TOKENS_CSS),
             &read(&assets_dir.join(TOKENS_CSS))?,
@@ -486,6 +500,30 @@ mod tests {
             tokens.contains("--space-base: 0.5rem;"),
             "the spacing base is no longer 0.5rem (8px at the 16px conversion base)"
         );
+    }
+
+    /// Configuration must not be able to undo the structural fix.
+    ///
+    /// Promoted markup is unservable-without-verification *because* no
+    /// `ServeDir` can reach it. Deny routes were tried first and lost to
+    /// percent-encoding. If `UI_SERVO_ASSETS` is ever pointed at a parent of the
+    /// promotion directory, that whole argument evaporates silently — the server
+    /// still starts, still serves, and the file is a plain GET away.
+    #[test]
+    fn a_promotion_directory_inside_the_asset_root_is_refused() {
+        let site = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // The misconfiguration: serve the crate root, which contains promoted/.
+        let outcome = AppState::load(site.clone(), site.clone(), false, "b".into(), "t".into());
+        assert!(
+            matches!(outcome, Err(StartupError::PromotedInsideAssets { .. })),
+            "a server whose static root contains the promotion directory started: {outcome:?}"
+        );
+
+        // The real layout is fine, in both modes.
+        for dev in [true, false] {
+            let ok = AppState::load(site.join("assets"), site.clone(), dev, "b".into(), "t".into());
+            assert!(ok.is_ok(), "the committed layout was refused: {ok:?}");
+        }
     }
 
     /// A release server must not come up carrying a fragment that cannot prove

@@ -81,6 +81,7 @@ from ui_servo.domain.policy import (
 )
 from ui_servo.domain.variant import (
     STILL,
+    build_anti_corpus,
     EliteArchive,
     MotionEvidence,
     PartName,
@@ -1325,6 +1326,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--contract", type=Path, default=None, help="direction contract TOML")
     parser.add_argument("--part-spec", type=Path, default=None, help="file holding the part brief")
     parser.add_argument(
+        "--anti-corpus",
+        type=Path,
+        default=None,
+        help="directory of generic_*.json style samples to measure blandness against",
+    )
+    parser.add_argument(
         "--dry-judges",
         action="store_true",
         help="replace the model panel with deterministic stubs (no model calls)",
@@ -1368,6 +1375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     judges = dry_panel() if args.dry_judges else cli_judges.default_panel()
     part_spec = args.part_spec.read_text(encoding="utf-8") if args.part_spec else ""
+    anti_corpus = _load_anti_corpus(args.anti_corpus, contract)
 
     with _previews(args.candidates, store, contract, turn_id) as base_url:
         with playwright_sensor.PlaywrightSensor(artifacts_dir=out_dir / "artifacts") as sensor:
@@ -1384,10 +1392,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 part=args.part,
                 part_spec=part_spec,
                 turn_id=turn_id,
+                anti_corpus=anti_corpus,
                 max_workers=max(1, args.max_workers),
             )
     print(result.summary())
     return 0
+
+
+DEFAULT_ANTI_CORPUS: Final[Path] = Path("tests/fixtures/blandness")
+"""Where the stock-template style samples live.
+
+Blandness is distance from the corpus median, so without a corpus there is no
+number -- and a round that reports ``blandness n/a`` for every survivor has
+quietly demoted taste from a measurement back to an opinion."""
+
+
+def _load_anti_corpus(directory: Path | None, contract: DirectionContract) -> tuple[StyleVector, ...]:
+    """Embed every ``generic_*.json`` sample once, for this round to measure against."""
+    root = directory or DEFAULT_ANTI_CORPUS
+    if not root.is_dir():
+        return ()
+    samples = []
+    for path in sorted(root.glob("generic_*.json")):
+        try:
+            samples.append((path.stem, StyleSample.model_validate_json(path.read_text())))
+        except Exception as error:  # noqa: BLE001 -- a bad fixture must not end a round
+            print(f"anti-corpus: skipping {path.name}: {error}")
+    return tuple(build_anti_corpus(samples, contract=contract).values())
 
 
 def _default_contract_path() -> Path | None:

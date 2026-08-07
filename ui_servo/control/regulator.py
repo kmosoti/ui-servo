@@ -326,10 +326,16 @@ class Regulator:
             signals=(*observed, *emitted),
         )
 
+        # The sensor measures the page it actually rendered, so its sample is the
+        # authoritative one; the argument stays as an override for tests and for
+        # callers that measure elsewhere. Preferring the argument would let a
+        # stale or synthetic sample silently outrank the real render -- which is
+        # how the archive ended up empty while every gate passed.
+        sample = style_sample
+        if sample is None and sensor_report is not None:
+            sample = getattr(sensor_report, "style_sample", None)
         vector = (
-            None
-            if style_sample is None
-            else StyleVector.from_sample(style_sample, contract=self.contract)
+            None if sample is None else StyleVector.from_sample(sample, contract=self.contract)
         )
         score = (
             blandness(vector, self.anti_corpus)

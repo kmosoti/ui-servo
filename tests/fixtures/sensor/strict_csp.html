@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"
+    />
+    <title>Strict CSP fixture — audit engine must still run</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 32px; }
+      .faint { color: #bfbfbf; background: #ffffff; font-size: 18px; }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="csp-main">
+      <h1>script-src is absent, so no inline script may run</h1>
+      <p class="faint" data-span-id="csp-faint">
+        A seeded contrast failure the harness must still be able to find.
+      </p>
+    </main>
+  </body>
+</html>

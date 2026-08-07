@@ -1,0 +1,183 @@
+# The reference signal of the ui-servo control loop.
+#
+# Every gate, probe and critic compares observed UI against THIS file. It is
+# versioned so that a change of taste is a change of contract (auditable),
+# never an argument in a prompt. Parsed by ui_servo.domain.contract.
+
+[meta]
+version = 1
+name = "ember-terminal"
+revision = "2026-08-05"
+owner = "kmosoti"
+description = "Deep warm dark, editorial serif display over a plain-spoken text face, molten amber primary with an electric cyan counterweight. A personal site that reads like a well-set page, not a product landing."
+
+[palette]
+space = "oklch"
+
+[palette.background]
+l = 0.16
+c = 0.022
+h = 52.0
+
+[palette.surface]
+l = 0.225
+c = 0.026
+h = 54.0
+
+[palette.text]
+l = 0.94
+c = 0.014
+h = 84.0
+
+[palette.muted]
+l = 0.72
+c = 0.021
+h = 72.0
+
+[palette.border]
+l = 0.33
+c = 0.028
+h = 56.0
+
+[palette.accent]
+l = 0.80
+c = 0.185
+h = 78.0
+
+[palette.accent-2]
+l = 0.72
+c = 0.148
+h = 206.0
+
+[type]
+ratio = 1.25
+base_px = 17.0
+rem_base_px = 16.0
+
+[type.display_family]
+name = "Instrument Serif"
+fallbacks = ["ui-serif", "Iowan Old Style", "Georgia", "serif"]
+
+[type.text_family]
+name = "IBM Plex Sans"
+fallbacks = ["system-ui", "-apple-system", "Segoe UI", "sans-serif"]
+
+[type.mono_family]
+name = "IBM Plex Mono"
+fallbacks = ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"]
+
+[type.steps]
+xs = -2
+sm = -1
+base = 0
+md = 1
+lg = 2
+xl = 3
+2xl = 4
+3xl = 5
+display = 6
+
+[spacing]
+base_px = 8.0
+ratio = 1.5
+
+[spacing.steps]
+xs = -2
+sm = -1
+base = 0
+md = 1
+lg = 2
+xl = 3
+2xl = 4
+3xl = 5
+
+[motion]
+animatable_properties = ["transform", "opacity"]
+reduced_motion_required = true
+
+[motion.durations_ms]
+quick = 90
+base = 140
+slow = 220
+deliberate = 320
+
+# Easings are cubic-bezier() with both x control points inside 0..1, or the bare
+# keyword "linear" — the only keyword this contract admits. "linear" is allowed on
+# purpose: it is what the browser reports for an unshaped transition, so the Tier 1
+# probe needs it expressible here to compare getAnimations() output against. The
+# named curves (ease, ease-in, ease-in-out) stay out: their shapes are unstated,
+# and the motion axis is only checkable because every curve here is a number.
+[motion.easings]
+standard = "cubic-bezier(0.2, 0, 0, 1)"
+entrance = "cubic-bezier(0.16, 1, 0.3, 1)"
+exit = "cubic-bezier(0.4, 0, 1, 1)"
+
+# Quality-diversity axes. The explorer samples within these bounds; anything
+# outside them is off-contract by construction, so the QD grid cannot drift
+# into generic density while still scoring well.
+[density.space-multiplier]
+min = 0.85
+max = 1.25
+default = 1.0
+unit = ""
+
+[density.measure]
+min = 54.0
+max = 78.0
+default = 68.0
+unit = "ch"
+
+[density.line-height]
+min = 1.3
+max = 1.75
+default = 1.55
+unit = ""
+
+# The bar is concrete: named artefacts a critic can be pointed at, not adjectives.
+[[references]]
+name = "linear.app"
+url = "https://linear.app"
+note = "Precision: optical alignment, restrained motion tokens, dense but never cramped."
+axes = ["density", "motion"]
+
+[[references]]
+name = "rauno.me"
+url = "https://rauno.me"
+note = "Restraint: one idea per screen, motion used only to explain state changes."
+axes = ["motion", "hierarchy"]
+
+[[references]]
+name = "brutalist-type"
+url = "https://brutalistwebsites.com"
+note = "Type as structure: oversized display setting carries the hierarchy instead of boxes and shadows."
+axes = ["type", "hierarchy"]
+
+[[references]]
+name = "editorial-serif-longform"
+url = "https://www.are.na"
+note = "Editorial: generous measure, real paragraph rhythm, links that read as prose."
+axes = ["type", "density"]
+
+[[anti_references]]
+name = "default-shadcn"
+url = "https://ui.shadcn.com"
+note = "Unmodified default theme: neutral greys, 0.5rem radii everywhere, zinc-on-zinc cards. The corpus median."
+axes = ["color", "density"]
+
+[[anti_references]]
+name = "bootstrap-default"
+url = "https://getbootstrap.com"
+note = "Primary-blue buttons, 1rem gutters, jumbotron hierarchy."
+axes = ["color", "hierarchy"]
+
+[[anti_references]]
+name = "stock-saas-landing"
+url = "https://www.saaslandingpage.com"
+note = "Centred hero, gradient blob, three feature cards with lucide icons, logo cloud, pricing table."
+axes = ["hierarchy", "density"]
+
+[[anti_references]]
+name = "ai-purple-gradient"
+url = "https://vercel.com/templates"
+note = "Violet-to-cyan gradient text, glassmorphic cards, glow on every border. Default-model taste."
+axes = ["color", "motion"]

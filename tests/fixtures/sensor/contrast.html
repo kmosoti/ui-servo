@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contrast fixture — seeded WCAG AA failure</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 32px; }
+      h1 { color: #101014; font-size: 28px; margin: 0 0 16px; }
+      .legible { color: #101014; background: #ffffff; padding: 8px 0; }
+      .faint { color: #bfbfbf; background: #ffffff; padding: 8px 0; font-size: 18px; }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="contrast-main">
+      <h1>Readable heading</h1>
+      <p class="legible" data-span-id="contrast-legible">
+        This paragraph clears AA comfortably at 15.9:1 and must not be reported.
+      </p>
+      <p class="faint" data-span-id="contrast-faint">
+        This paragraph is #bfbfbf on #ffffff — about 1.9:1 — and is the seeded violation.
+      </p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reduced motion ignored by a short finite animation</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 40px; }
+      .entrance {
+        width: 220px;
+        height: 120px;
+        background: #16161a;
+        animation: rise 250ms cubic-bezier(0.16, 1, 0.3, 1) 1 both;
+      }
+      @keyframes rise {
+        from { transform: translateY(24px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="motion-short">
+      <h1>Finite entrance animation, no reduced-motion handling</h1>
+      <div class="entrance" data-span-id="motion-short-entrance"></div>
+    </main>
+  </body>
+</html>

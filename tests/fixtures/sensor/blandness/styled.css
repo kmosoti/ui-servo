@@ -1,0 +1,57 @@
+/* ember-terminal: direction.toml v1, resolved to sRGB and to its own scales.
+   Palette OKLCH -> sRGB: background 0.16/0.022/52, surface 0.225/0.026/54,
+   text 0.94/0.014/84, muted 0.72/0.021/72, accent 0.80/0.185/78.
+   Spacing steps: 8 x 1.5^n. Type steps: 17 x 1.25^n. Radius: none, ever. */
+:root { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: #150b05;
+  color: #f0ebe1;
+  font: 17px/1.55 "IBM Plex Sans", system-ui, sans-serif;
+}
+
+.masthead {
+  padding: 40.5px 27px;
+  background: #150b05;
+  color: #f0ebe1;
+  border-radius: 0;
+}
+
+.display {
+  margin: 0 0 18px;
+  font-family: "Instrument Serif", ui-serif, Georgia, serif;
+  font-size: 41.5px;
+  font-weight: 400;
+  line-height: 1.05;
+  color: #f0ebe1;
+}
+
+.standfirst {
+  margin: 0 0 27px;
+  font-size: 21.25px;
+  color: #f0ebe1;
+}
+
+.body {
+  margin: 0 0 27px;
+  font-size: 17px;
+  color: #ada397;
+  max-width: 68ch;
+}
+
+.link-accent {
+  display: inline-block;
+  padding: 8px 12px;
+  color: #fdab00;
+  background: #251810;
+  border-radius: 0;
+  font-size: 17px;
+  text-decoration: none;
+}
+
+.rule {
+  margin: 27px 0 0;
+  border: 0;
+  border-top: 1px solid #413227;
+}

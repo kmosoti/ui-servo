@@ -1,0 +1,229 @@
+# site/ — the product skeleton
+
+The thing the control loop actually steers. Four server-rendered pages (axum +
+maud), a fragment endpoint htmx swaps against, and an asset directory whose
+interesting files are all *generated from the contract* rather than typed by
+hand.
+
+There are no template files on disk: maud compiles HTML into the binary, so a
+page that does not compile cannot be served, and a fragment is an ordinary Rust
+function that the gauntlet can call, diff and replace.
+
+```
+site/
+  Cargo.toml            axum 0.8 · maud 0.27 · tower-http · tokio · tracing
+  src/main.rs           routing table, static assets, graceful shutdown
+  src/layout.rs         the document shell: landmarks, skip link, dev sensors
+  src/state.rs          startup config: assets dir, motion table, colour scheme
+  src/span.rs           span ids — the join key for the whole sensor stack
+  src/error.rs          StartupError / RouteError (thiserror)
+  src/pages/            one module per route (home, projects, writing, about)
+  src/fragments/        one module per fragment — the gauntlet's unit of work
+  assets/tokens.css     GENERATED from direction/direction.toml
+  assets/motion.json    GENERATED from direction/direction.toml
+  assets/site.css       hand-written, custom properties only
+  assets/htmx.min.js    vendored, see "Vendored dependencies"
+```
+
+## Run it
+
+Requires Rust stable 1.97 (`~/.cargo/bin`). From this directory:
+
+```sh
+cargo run                                  # http://127.0.0.1:8080
+UI_SERVO_DEV=1 cargo run                   # ... plus the browser probe
+UI_SERVO_PORT=9000 UI_SERVO_DEV=1 cargo run
+```
+
+| Variable           | Default                        | Effect |
+| ------------------ | ------------------------------ | ------ |
+| `UI_SERVO_DEV`     | unset                          | `=1` injects `window.__UI_SERVO__` and `probe.js` into every page |
+| `UI_SERVO_PORT`    | `8080`                         | listen port |
+| `UI_SERVO_BEACON`  | `http://localhost:8700/beacon` | where the probe posts batches (the U4 preview server) |
+| `UI_SERVO_TURN_ID` | a fresh span id                | correlates every beacon from this process with one loop turn |
+| `UI_SERVO_ASSETS`  | `site/assets`                  | asset directory override |
+| `UI_SERVO_PROBE`   | unset                          | explicit path to `probe.js` |
+| `RUST_LOG`         | `info,tower_http=info`         | tracing filter |
+
+The server refuses to start if `assets/tokens.css` or `assets/motion.json` is
+missing or malformed. Concretely: `tokens.css` must contain at least one
+`--color-*` declaration (an empty or truncated sheet would otherwise render a
+colourless page that still returns 200), and `motion.json` must carry
+`durations`, `easings`, `properties` **and** the `reducedMotionRequired`
+boolean. That last one is not decoration — the probe defaults a missing flag to
+`false` and then stops reporting animations that run while
+`prefers-reduced-motion: reduce` matches, which is a silently disabled sensor.
+Rendering off-contract silently is the exact failure mode this repository exists
+to prevent, so startup fails loudly instead.
+
+`probe.js` is resolved once at startup, in order: `UI_SERVO_PROBE`,
+`assets/probe.js`, then the sibling `../probe/probe.js` (the U3 unit). It is
+re-read from disk per request and served `no-store`, so editing the sensor does
+not need a rebuild. In dev with no probe on disk the server logs a warning and
+`/assets/probe.js` returns 404 — the pages still render.
+
+Shutdown is graceful on both Ctrl-C and `SIGTERM`.
+
+## Routes
+
+| Route              | Response |
+| ------------------ | -------- |
+| `/`                | index page |
+| `/projects`        | projects page |
+| `/writing`         | writing page |
+| `/about`           | about page |
+| `/fragments/{name}`| **bare** fragment HTML for htmx swaps — no shell, no doctype |
+| `/assets/*`        | `tokens.css`, `site.css`, `motion.json`, `htmx.min.js`, `probe.js` |
+
+Fragment names: `dispatch`, `project-card`, `reading-log`, `colophon`. An
+unknown name is a 404, never a panic — the name comes from a URL.
+
+## Regenerating the derived assets
+
+Both files are build artifacts of `direction/direction.toml` and are committed
+so that a clean checkout runs. Re-emit them after **any** contract change; the
+gauntlet regenerates them too, and a diff here is a signal, not noise. Run both
+from the repository root.
+
+**`assets/tokens.css`** — every colour, size, duration and easing the site may use:
+
+```sh
+uv run python -m ui_servo.domain.contract --emit-css site/assets/tokens.css
+```
+
+**`assets/motion.json`** — the flattened motion table the probe compares
+`getAnimations()` against. `ui_servo/domain/contract.py` is not owned by this
+unit, so rather than adding a `--emit-motion-json` flag to it, this unit derives
+the same value through the public `motion_table()` API:
+
+```sh
+uv run python -c '
+import json, pathlib
+from ui_servo.domain.contract import DirectionContract
+src = pathlib.Path("direction/direction.toml")
+c = DirectionContract.from_toml(src.read_text(encoding="utf-8"))
+t = c.motion_table()
+out = {
+    "_generated_by": "uv run python -c (see site/README.md) from ui_servo.domain.contract.motion_table()",
+    "contract": {"name": c.meta.name, "version": c.meta.version, "revision": c.meta.revision},
+    "durations": sorted(t.durations_ms),
+    "easings": sorted(t.easings),
+    "properties": sorted(t.animatable_properties),
+    "reducedMotionRequired": t.reduced_motion_required,
+}
+pathlib.Path("site/assets/motion.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+print("wrote site/assets/motion.json")
+'
+```
+
+If `contract.py` later grows a first-class `--emit-motion-json`, delete the
+snippet above and call the flag; the JSON shape is the contract between the two.
+
+## Vendored dependencies
+
+| File                 | Version | Source | SHA-256 |
+| -------------------- | ------- | ------ | ------- |
+| `assets/htmx.min.js` | htmx **2.0.7** (BSD-2-Clause) | `https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js` | `60231ae6ba9db3825eb15a261122d5f55921c4d53b66bf637dc18b4ee27c79f9` |
+
+Vendored rather than CDN-loaded on purpose: the probe measures this page, and a
+third-party origin that can change its bytes under us is an unmeasured input.
+The file carries a provenance banner as its first line (which is why its hash on
+disk differs from the hash above — the hash is of the upstream bytes). To bump,
+from the repository root, keeping the banner:
+
+```sh
+VERSION=2.0.8
+curl -sSL "https://unpkg.com/htmx.org@${VERSION}/dist/htmx.min.js" -o /tmp/htmx.min.js
+HASH=$(sha256sum /tmp/htmx.min.js | cut -d' ' -f1)
+{
+  printf '/*! htmx %s | https://unpkg.com/htmx.org@%s/dist/htmx.min.js | BSD-2-Clause | sha256 %s */\n' \
+    "$VERSION" "$VERSION" "$HASH"
+  cat /tmp/htmx.min.js
+} > site/assets/htmx.min.js
+node --check site/assets/htmx.min.js && echo "$VERSION $HASH"   # record both in the table above
+```
+
+## Fragment-authoring contract
+
+A fragment is the unit the explorer mutates, the preview server serves, the
+probe measures and htmx swaps. Three rules, all mechanically checkable:
+
+1. **One root element with a span id.** Use `fragments::frame(name, label, body)`;
+   it emits a single `<section data-span-id=… data-fragment=… elementtiming=…>`.
+   Never hand-roll the root. A swap with two roots has no join key and no
+   element-timing entry, which silently blinds the sensor stack.
+2. **Allowlisted classes only.** The vocabulary is exactly what
+   `DirectionContract.class_allowlist_seed()` derives from the tokens — 93
+   classes: `bg-*`, `text-*`, `border-*`, `type-*`,
+   `{p,px,py,m,mx,my,gap}-*`, `duration-*`, `ease-*` — and every one of them is
+   declared in `assets/site.css`. Anything else is an unreviewed escape hatch
+   out of the contract, and the probe's CSSOM check reports it as an
+   `unknown-class` event. Structural styling goes on semantic elements in
+   `site.css`, not on new classes.
+
+   The one addition: `site.css` also declares htmx's five runtime lifecycle
+   classes (`htmx-request`, `htmx-swapping`, `htmx-settling`, `htmx-added`,
+   `htmx-indicator`) as commented no-ops. htmx applies those itself during a
+   swap, so a stylesheet that does not name them makes the probe emit a false
+   `unknown-class` on every swap the site performs. They are vocabulary, not
+   style — do not hang appearance on them.
+3. **Motion through tokens only.** `var(--motion-duration-*)` and
+   `var(--motion-ease-*)`, animating `transform` and `opacity` and nothing else.
+   The contract permits four durations (90/140/220/320 ms) and three easings; a
+   hand-typed duration is off-contract by construction and the probe will emit a
+   `motion-violation` naming the offending value.
+
+Corollaries worth stating: `assets/site.css` may only use custom properties (no
+literal colours, sizes, durations, weights or opacities appear in any rule), and
+it carries the consumer-side `@media (prefers-reduced-motion: reduce)` block that
+zeroes animation and transition durations — the generated `tokens.css` zeroes the
+duration tokens themselves, and the two halves are deliberately redundant.
+
+### The root font-size rule
+
+`site.css` must never set `font-size` on `html`. The contract converts px to rem
+against `[type] rem_base_px = 16`, so every `--type-*` and `--space-*` token is a
+rem value that is only correct while the root resolves 1rem to 16px. Restating
+the root font-size as `var(--type-base)` (1.0625rem) rescales *every* rem token
+by 6.25% at once — `--space-base` would compute to 8.5px instead of the
+contracted 8px — and nothing downstream would notice, because each individual
+value still "comes from a token". The site's 17px reading size is applied on
+`body` instead; rem always resolves against the root, so a font-size below the
+root is free of this effect. `cargo test` asserts both halves.
+
+### Structural constants (direction.toml v2 candidates)
+
+A handful of values are genuinely structural and the v1 contract has no vocabulary
+for them. They are consolidated in one `:root` block at the top of `site.css`
+under the `--site-*` prefix — countable, reviewable, and never inline in a rule.
+Each is a candidate for a v1→v2 contract change:
+
+| Custom property | Value | Proposed contract home |
+| --- | --- | --- |
+| `--site-line-height-display` | `1.1` | `[type] line_heights` (display vs prose; prose already has `[density] line-height`) |
+| `--site-weight-display` | `400` | `[type]` per-family weights |
+| `--site-hairline` | `1px` | `[borders] hairline` |
+| `--site-focus-ring` | `2px` | `[borders] focus_ring` (with an offset token) |
+| `--site-hover-opacity` | `0.72` | `[opacity] hover` |
+| `--site-press-offset` | `1px` | `[motion]` or `[spacing]` — a press displacement |
+| `--site-transparent` | `transparent` | `[palette]` may want an explicit `none`/`transparent` role |
+
+Until then: adding a `--site-*` property is a reviewable event, not a shortcut.
+If a value has a token, use the token; this block is only for what no token can
+express.
+
+Slots and swaps: pages wrap fragments in `pages::slot(id, body)`, which also
+carries a span id, and re-render them with `pages::reswap_button(...)` using
+`hx-swap="innerHTML"`. The slot survives the swap, so `htmx:afterSwap` always
+fires on an element that already has a join key.
+
+## Checks
+
+```sh
+cargo build                        # must be warning-clean
+cargo test                         # span ids, fragment invariants, asset sanity
+cargo fmt --check && cargo clippy
+```
+
+Acceptance for this unit: the build is clean, and all four page routes return
+200 with `data-span-id` present in the body.

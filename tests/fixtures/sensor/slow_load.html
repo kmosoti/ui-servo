@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slow load, quiet interaction</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 40px; }
+      button { font: inherit; padding: 12px 20px; background: #16161a; color: #ffffff; border: 0; }
+    </style>
+    <script>
+      const until = performance.now() + 350;
+      while (performance.now() < until) {
+        /* a deliberate long task during page load: it must not be charged to the
+           interaction window the sensor opens afterwards */
+      }
+    </script>
+  </head>
+  <body>
+    <main data-span-id="slow-load-main">
+      <h1>The expensive work already happened</h1>
+      <button id="quiet" type="button" data-span-id="slow-load-button">Set a label</button>
+      <p id="status" data-span-id="slow-load-status">idle</p>
+    </main>
+    <script>
+      document.getElementById('quiet').addEventListener('click', () => {
+        document.getElementById('status').textContent = 'clicked';
+      });
+    </script>
+  </body>
+</html>

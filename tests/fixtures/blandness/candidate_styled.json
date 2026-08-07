@@ -1,0 +1,82 @@
+{
+  "span_id": "hero",
+  "viewport": {"width": 1280, "height": 800},
+  "elements": [
+    {
+      "selector": "section.masthead",
+      "area_px": 819200.0,
+      "color": {"l": 0.94, "c": 0.014, "h": 84.0},
+      "background": {"l": 0.16, "c": 0.022, "h": 52.0},
+      "font_size_px": 17.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [40.5, 40.5, 27.0, 18.0],
+      "contrast_ratio": 14.9
+    },
+    {
+      "selector": "section.masthead > h1.display",
+      "area_px": 174080.0,
+      "color": {"l": 0.94, "c": 0.014, "h": 84.0},
+      "background": {"l": 0.16, "c": 0.022, "h": 52.0},
+      "font_size_px": 51.88,
+      "border_radius_px": 0.0,
+      "spacing_px": [27.0],
+      "contrast_ratio": 14.9
+    },
+    {
+      "selector": "section.masthead > p.standfirst",
+      "area_px": 71680.0,
+      "color": {"l": 0.72, "c": 0.021, "h": 72.0},
+      "background": {"l": 0.16, "c": 0.022, "h": 52.0},
+      "font_size_px": 26.5625,
+      "border_radius_px": 0.0,
+      "spacing_px": [18.0],
+      "contrast_ratio": 8.1
+    },
+    {
+      "selector": "section.masthead > p.body",
+      "area_px": 122880.0,
+      "color": {"l": 0.94, "c": 0.014, "h": 84.0},
+      "background": {"l": 0.16, "c": 0.022, "h": 52.0},
+      "font_size_px": 21.25,
+      "border_radius_px": 0.0,
+      "spacing_px": [18.0, 12.0],
+      "contrast_ratio": 14.9
+    },
+    {
+      "selector": "a.link-accent",
+      "area_px": 14400.0,
+      "color": {"l": 0.8, "c": 0.185, "h": 78.0},
+      "background": {"l": 0.16, "c": 0.022, "h": 52.0},
+      "font_size_px": 17.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [12.0, 8.0],
+      "contrast_ratio": 10.2
+    },
+    {
+      "selector": "a.link-accent:focus-visible",
+      "area_px": 14400.0,
+      "color": {"l": 0.72, "c": 0.148, "h": 206.0},
+      "background": {"l": 0.225, "c": 0.026, "h": 54.0},
+      "font_size_px": 13.6,
+      "border_radius_px": 0.0,
+      "spacing_px": [8.0, 5.33],
+      "contrast_ratio": 7.4
+    },
+    {
+      "selector": "hr.rule",
+      "area_px": 1280.0,
+      "background": {"l": 0.33, "c": 0.028, "h": 56.0},
+      "border_radius_px": 0.0,
+      "spacing_px": [27.0]
+    }
+  ],
+  "screenshot": {
+    "oklch_bins": [
+      0.0, 0.0, 0.0,
+      688000.0, 0.0, 121000.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 18000.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    ]
+  }
+}

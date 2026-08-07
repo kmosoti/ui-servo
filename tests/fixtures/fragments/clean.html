@@ -1,0 +1,19 @@
+<section class="p-lg bg-surface border-border" data-span-id="notes-index" hx-get="/fragments/notes" hx-trigger="load once" hx-swap="outerHTML" aria-labelledby="notes-heading">
+  <h2 class="type-2xl text-text my-md" id="notes-heading">Notes</h2>
+  <p class="type-base text-muted">Written slowly, published quickly.</p>
+  <ul class="gap-sm p-base">
+    <li class="type-md text-text">
+      <a class="text-accent duration-base ease-standard" href="/notes/servo-loops" hx-get="/fragments/notes/servo-loops" hx-target="#reading-pane" hx-swap="innerHTML settle:100ms">Servo loops for taste</a>
+      <time class="type-sm text-muted" datetime="2026-08-05">5 August 2026</time>
+    </li>
+    <li class="type-md text-text">
+      <a class="text-accent duration-base ease-standard" href="/notes/fail-closed" hx-get="/fragments/notes/fail-closed" hx-target="#reading-pane" hx-swap="innerHTML settle:100ms">Fail closed, fail cheap</a>
+      <time class="type-sm text-muted" datetime="2026-07-22">22 July 2026</time>
+    </li>
+  </ul>
+  <form class="gap-sm my-lg" action="/subscribe" method="post" hx-post="/fragments/subscribe" hx-swap="outerHTML" hx-trigger="submit">
+    <label class="type-sm text-muted" for="email">Email</label>
+    <input class="p-sm bg-background border-border" id="email" type="email" name="email" placeholder="you@example.com">
+    <button class="p-sm bg-accent text-background duration-quick ease-standard" type="submit">Subscribe</button>
+  </form>
+</section>

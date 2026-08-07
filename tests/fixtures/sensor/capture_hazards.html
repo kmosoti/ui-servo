@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spans that cannot be photographed</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 32px; }
+      .visible { width: 240px; height: 80px; background: #16161a; }
+      .hidden { display: none; }
+      .invisible { visibility: hidden; width: 200px; height: 40px; }
+      .empty { width: 0; height: 0; overflow: hidden; }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="hazards-main">
+      <h1>Three of these four spans have no pixels</h1>
+      <div class="visible" data-span-id="hazard-visible"></div>
+      <div class="visible" data-span-id="full-page">a span legally named after the page key</div>
+      <div class="hidden" data-span-id="hazard-display-none">not rendered at all</div>
+      <div class="invisible" data-span-id="hazard-visibility-hidden">laid out but not painted</div>
+      <div class="empty" data-span-id="hazard-zero-area"></div>
+    </main>
+  </body>
+</html>

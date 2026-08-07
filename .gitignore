@@ -7,3 +7,6 @@ harness/artifacts/
 harness/baselines/*.png
 node_modules/
 .env
+
+# U6: rust build artifacts for the site skeleton
+site/target/

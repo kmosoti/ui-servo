@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reduced motion ignored</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 40px; }
+      .pulse {
+        width: 220px;
+        height: 120px;
+        background: #16161a;
+        animation: drift 1200ms ease-in-out infinite alternate;
+      }
+      @keyframes drift {
+        from { transform: translateX(0); }
+        to { transform: translateX(120px); }
+      }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="motion-bad">
+      <h1>Ignores the query</h1>
+      <div class="pulse" data-span-id="motion-bad-pulse"></div>
+    </main>
+  </body>
+</html>

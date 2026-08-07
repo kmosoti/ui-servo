@@ -4,23 +4,29 @@ version = "0.1.0"
 description = "Tiered feedback loop for agent-generated UI: deterministic gates for correctness, cross-family model panel for critique, quality-diversity sampling for taste"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.115",
+    "fastapi>=0.115",      # Tier 1 beacon ingest + evidence API
     "uvicorn[standard]>=0.32",
     "nh3>=0.2",            # Rust (ammonia) HTML sanitizer — Tier 0
     "orjson>=3.10",        # Rust JSON — evidence store + beacon ingest
-    "pydantic>=2.9",       # pydantic-core is Rust
-    "httpx>=0.27",         # model adapters (Gemini/GPT REST)
-    "anthropic>=0.40",     # Claude adapter
-    "playwright>=1.49",    # Tier 2 harness
+    "pydantic>=2.9",       # pydantic-core is Rust; the only third-party dep the domain may use
+    "httpx>=0.27",         # evidence API client; probe/harness plumbing
+    "anthropic>=0.40",     # unused by default; reserved for a future API-mode judge (panel uses local CLIs)
+    "playwright>=1.49",    # Tier 2 shadow-browser harness
     "pillow>=11.0",        # pixel diff (C-backed)
     "tinycss2>=1.4",       # CSS token parsing for class allowlist build
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.3"]
+# pyyaml is used directly by tests/test_gauntlet_skill.py; it must not be relied
+# on as a transitive extra of uvicorn[standard].
+dev = ["pytest>=8.3", "pyyaml>=6.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: exercises the locally-authenticated model CLIs",
+    "playwright: drives a real headless browser",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,3 +34,23 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ui_servo"]
+
+# One authored contract, two locations: the checkout keeps direction/direction.toml,
+# the wheel gets a copy on the import path so the CLI has a default when there is no
+# source tree. Copied at build time, so the two cannot drift. probe.js rides along for
+# the same reason: the preview server serves it to every page it renders, and a wheel
+# that promises a <script src> it cannot serve is a wheel that silently loses evidence.
+[tool.hatch.build.targets.wheel.force-include]
+"direction/direction.toml" = "ui_servo/domain/data/direction.toml"
+"probe/probe.js" = "ui_servo/adapters/data/probe.js"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "ui_servo",
+    "direction",
+    "probe",  # force-included into the wheel; a wheel cannot be built from an sdist without it
+    "tests",
+    "README.md",
+    "ARCHITECTURE.md",
+    "pyproject.toml",
+]

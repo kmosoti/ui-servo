@@ -1,0 +1,4 @@
+# This crate is its own workspace (site/Cargo.toml excludes it), so it has its
+# own target directory. The built artefacts that matter live in
+# ../assets/islands and are committed; this is the intermediate rubble.
+/target

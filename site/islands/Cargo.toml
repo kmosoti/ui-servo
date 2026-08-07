@@ -1,0 +1,42 @@
+[package]
+name = "ui-servo-islands"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "The site's one WASM island: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens."
+publish = false
+
+# Its own workspace root. `site/Cargo.toml` excludes this directory precisely so
+# that building for wasm32 never drags a wasm target into the server's graph.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "CanvasRenderingContext2d",
+  "CssStyleDeclaration",
+  "CustomEvent",
+  "CustomEventInit",
+  "Document",
+  "DomRect",
+  "Element",
+  "Event",
+  "EventTarget",
+  "HtmlCanvasElement",
+  "HtmlElement",
+  "PointerEvent",
+  "Window",
+]
+
+# An island is a download before it is a feature. Optimise for bytes.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

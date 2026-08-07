@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Main-thread jank fixture</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 40px; }
+      button { font: inherit; padding: 12px 20px; background: #16161a; color: #ffffff; border: 0; }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="jank-main">
+      <h1>Blocks the main thread on click</h1>
+      <button id="jank" type="button" data-span-id="jank-button">Block 400ms</button>
+      <p id="status" data-span-id="jank-status">idle</p>
+    </main>
+    <script>
+      document.getElementById('jank').addEventListener('click', () => {
+        const until = performance.now() + 400;
+        while (performance.now() < until) {
+          /* deliberate synchronous stall: the sensor must see the frames it costs */
+        }
+        document.getElementById('status').textContent = 'blocked';
+      });
+    </script>
+  </body>
+</html>

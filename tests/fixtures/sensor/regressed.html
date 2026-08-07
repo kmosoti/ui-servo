@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pixel baseline fixture</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #ffffff; color: #101014; }
+      main { padding: 40px; }
+      .hero { width: 640px; height: 320px; background: #de184c; color: #ffffff; padding: 24px; }
+      .hero h1 { margin: 0; font-size: 32px; }
+      .note { color: #101014; margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <main data-span-id="pixel-main">
+      <section class="hero" data-span-id="pixel-hero">
+        <h1>Kept baseline</h1>
+        <p>The regressed twin changes only this block's fill.</p>
+      </section>
+      <p class="note" data-span-id="pixel-note">Layout and page height are identical in both files.</p>
+    </main>
+  </body>
+</html>

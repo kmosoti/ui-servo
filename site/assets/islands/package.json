@@ -1,0 +1,16 @@
+{
+  "name": "ui-servo-islands",
+  "type": "module",
+  "description": "The site's one WASM island: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens.",
+  "version": "0.1.0",
+  "files": [
+    "ui_servo_islands_bg.wasm",
+    "ui_servo_islands.js",
+    "ui_servo_islands.d.ts"
+  ],
+  "main": "ui_servo_islands.js",
+  "types": "ui_servo_islands.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

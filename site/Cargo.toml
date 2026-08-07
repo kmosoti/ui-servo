@@ -1,0 +1,31 @@
+[package]
+name = "ui-servo-site"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+description = "The product skeleton the ui-servo control loop steers: SSR pages, htmx fragments, sensor-ready markup."
+publish = false
+
+# U7 grows a wasm island crate at site/islands/. Excluding it here keeps that
+# crate independently buildable by wasm-pack without dragging a wasm target
+# into this package's dependency graph.
+[workspace]
+members = ["."]
+exclude = ["islands"]
+
+[dependencies]
+axum = "0.8"
+maud = { version = "0.27", features = ["axum"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Router::oneshot — exercise the real routing table without binding a socket.
+tower = { version = "0.5", features = ["util"] }
+
+[profile.dev]
+debug = 1

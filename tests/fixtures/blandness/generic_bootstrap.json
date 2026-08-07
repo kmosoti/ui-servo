@@ -1,0 +1,95 @@
+{
+  "span_id": "anti-bootstrap",
+  "viewport": {"width": 1280, "height": 800},
+  "elements": [
+    {
+      "selector": "section.container",
+      "area_px": 819200.0,
+      "color": {"l": 0.246, "c": 0.014, "h": 264.5},
+      "background": {"l": 1.0, "c": 0.0, "h": 0.0},
+      "font_size_px": 16.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [24.0, 24.0, 16.0],
+      "contrast_ratio": 16.1
+    },
+    {
+      "selector": "div.jumbotron",
+      "area_px": 460800.0,
+      "color": {"l": 0.246, "c": 0.014, "h": 264.5},
+      "background": {"l": 0.968, "c": 0.003, "h": 264.5},
+      "font_size_px": 16.0,
+      "border_radius_px": 6.0,
+      "spacing_px": [48.0, 48.0, 32.0, 16.0],
+      "contrast_ratio": 15.3
+    },
+    {
+      "selector": "h1.display-4",
+      "area_px": 92160.0,
+      "color": {"l": 0.246, "c": 0.014, "h": 264.5},
+      "background": {"l": 0.968, "c": 0.003, "h": 264.5},
+      "font_size_px": 56.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [16.0],
+      "contrast_ratio": 15.3
+    },
+    {
+      "selector": "p.lead",
+      "area_px": 51200.0,
+      "color": {"l": 0.567, "c": 0.019, "h": 254.4},
+      "background": {"l": 0.968, "c": 0.003, "h": 264.5},
+      "font_size_px": 20.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [16.0],
+      "contrast_ratio": 5.1
+    },
+    {
+      "selector": "button.btn-primary",
+      "area_px": 8640.0,
+      "color": {"l": 1.0, "c": 0.0, "h": 0.0},
+      "background": {"l": 0.548, "c": 0.238, "h": 262.9},
+      "font_size_px": 20.0,
+      "border_radius_px": 6.0,
+      "spacing_px": [16.0, 8.0, 12.0],
+      "contrast_ratio": 4.7
+    },
+    {
+      "selector": "div.card",
+      "area_px": 122880.0,
+      "color": {"l": 0.246, "c": 0.014, "h": 264.5},
+      "background": {"l": 1.0, "c": 0.0, "h": 0.0},
+      "font_size_px": 16.0,
+      "border_radius_px": 8.0,
+      "spacing_px": [16.0, 16.0, 24.0],
+      "contrast_ratio": 16.1
+    },
+    {
+      "selector": "h5.card-title",
+      "area_px": 15360.0,
+      "color": {"l": 0.246, "c": 0.014, "h": 264.5},
+      "background": {"l": 1.0, "c": 0.0, "h": 0.0},
+      "font_size_px": 20.0,
+      "border_radius_px": 0.0,
+      "spacing_px": [8.0],
+      "contrast_ratio": 16.1
+    },
+    {
+      "selector": "p.text-secondary",
+      "area_px": 40960.0,
+      "color": {"l": 0.567, "c": 0.019, "h": 254.4},
+      "background": {"l": 1.0, "c": 0.0, "h": 0.0},
+      "font_size_px": 16.0,
+      "border_radius_px": 4.0,
+      "spacing_px": [16.0],
+      "contrast_ratio": 5.4
+    }
+  ],
+  "screenshot": {
+    "oklch_bins": [
+      0.0, 0.0, 604000.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0,
+      38000.0, 11000.0, 171000.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    ]
+  }
+}

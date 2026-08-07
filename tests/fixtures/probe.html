@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ui-servo probe fixture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!--
+  Deterministic exercise rig for probe/probe.js. No htmx, no network, no build:
+  htmx's events are just CustomEvents, so the fixture synthesises them.
+
+  On load it provokes, in order:
+    swap-ok           - a synthesised htmx:afterSwap over #mount
+    unknown-class     - .invented-utility, .bg-gradient-to-r and .pdf (the last
+                        appears only inside an attribute selector) have no rule;
+                        .hover:title, .10xl and the fragment's own .fragment-only
+                        must NOT be reported
+    motion-violation  - 140.4ms (off-token by 0.4ms) and a linear segment mixed
+                        among contract beziers
+    animation         - 140ms / contract bezier / transform, on-contract evidence
+    overflow          - a 2400px child, a 1px-over child, and the scrolling root
+    js-error          - a deliberate throw from a timer
+    swap-error        - a synthesised htmx:responseError (500)
+    ce-error          - a custom element that throws in connectedCallback
+    wasm-panic        - the documented ui-servo:wasm-panic CustomEvent
+
+  Transport is stubbed: navigator.sendBeacon is teed into window.__PROBE_EVENTS__
+  so assertions work under file:// where request interception does not. The
+  native beacon is still attempted; its result is ignored so the probe's retry
+  path cannot double-report.
+-->
+
+<style>
+  /* The page's entire class vocabulary. Anything else is, by construction,
+     an unknown class -- which is exactly what check 5 must notice. */
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 2rem; font: 16px/1.5 system-ui, sans-serif;
+         background: #17130f; color: #f0ece4; }
+  .panel { border: 1px solid #4a3f33; padding: 1rem; margin-bottom: 1rem; max-width: 60ch; }
+  .title { font-size: 1.25rem; margin: 0 0 .5rem; }
+  .note { color: #b9ad9c; font-size: .875rem; }
+  .wide { width: 2400px; height: 8px; background: linear-gradient(90deg, #e0a03c, #4aa8c8); }
+  .narrow { width: 100px; overflow: hidden; }
+  .hair { width: 101px; height: 4px; background: #4aa8c8; }  /* exactly 1px over */
+  .log { font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; color: #b9ad9c; }
+
+  /* Motion cases. .drifting is on-contract in easing and property and off by
+     0.4ms: it must still be flagged, or rounding would launder drift. .mixed
+     is a contract bezier with one linear segment: the linear segment flags. */
+  .drifting { animation: drift 140.4ms cubic-bezier(0.2, 0, 0, 1) infinite; }
+  .settling { animation: settle 140ms cubic-bezier(0.2, 0, 0, 1) infinite; }
+  .mixed { animation: mix 220ms infinite; }
+
+  @keyframes drift { from { transform: none; } to { transform: translateX(8px); } }
+  @keyframes settle { from { transform: translateY(4px); opacity: 0; }
+                      to   { transform: none; opacity: 1; } }
+  @keyframes mix {
+    0%   { opacity: 0; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+    50%  { opacity: .5; animation-timing-function: linear; }
+    100% { opacity: 1; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+  }
+
+  /* Escaped selectors the vocabulary must normalise: "hover:title" and the
+     hex-escaped "10xl". The [href] rule must NOT whitelist a class "pdf". */
+  .hover\:title:hover { text-decoration: underline; }
+  .\31 0xl { letter-spacing: -.01em; }
+  a[href$=".pdf"] { text-decoration: underline dotted; }
+</style>
+
+<script>
+  // ---- server-injected configuration (mirrors DirectionContract.motion_table)
+  window.__UI_SERVO__ = {
+    beacon: '/beacon',
+    turnId: 'fixture-turn-0001',
+    motion: {
+      durations: [90, 140, 220, 320],
+      easings: [
+        'cubic-bezier(0.2, 0, 0, 1)',
+        'cubic-bezier(0.16, 1, 0.3, 1)',
+        'cubic-bezier(0.4, 0, 1, 1)',
+      ],
+      properties: ['transform', 'opacity'],
+      reducedMotionRequired: true,
+    },
+  };
+
+  // ---- transport tee, installed before the probe reads navigator.sendBeacon
+  window.__PROBE_EVENTS__ = [];
+  window.__PROBE_KINDS__ = () => [...new Set(window.__PROBE_EVENTS__.map((e) => e.kind))].sort();
+  const nativeBeacon = navigator.sendBeacon?.bind(navigator);
+  navigator.sendBeacon = (url, data) => {
+    const record = (text) => {
+      try {
+        for (const event of JSON.parse(text)) {
+          window.__PROBE_EVENTS__.push({ ...event, beaconUrl: url });
+        }
+      } catch (err) {
+        window.__PROBE_EVENTS__.push({ kind: 'fixture-parse-error', payload: String(err) });
+      }
+    };
+    if (data && typeof data.text === 'function') data.text().then(record);
+    else record(String(data));
+    try { nativeBeacon?.(url, data); } catch { /* file:// has nowhere to send */ }
+    return true;
+  };
+</script>
+
+<script src="../../probe/probe.js"></script>
+</head>
+
+<body>
+  <h1 class="title">ui-servo probe fixture</h1>
+  <p class="note">Static page. Everything below is provoked on load; re-run with
+    <code class="note">window.__FIXTURE__.run()</code>.</p>
+
+  <div class="panel" id="mount" data-span-id="span-fixture-mount"></div>
+
+  <div class="panel">
+    <h2 class="title">Beaconed events</h2>
+    <div class="log" id="log">waiting…</div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+  const mount = document.getElementById('mount');
+  const log = document.getElementById('log');
+
+  // A custom element whose connectedCallback throws: exercises the define shim.
+  class FixtureBoom extends HTMLElement {
+    connectedCallback() {
+      throw new Error('probe fixture: deliberate connectedCallback throw');
+    }
+  }
+  if (!customElements.get('fixture-boom')) customElements.define('fixture-boom', FixtureBoom);
+
+  // "pdf" is only ever seen inside an attribute selector and "invented-utility"
+  // nowhere: both must be reported. "hover:title", "10xl" and the fragment's own
+  // "fragment-only" (defined by the <style> it ships with) must not be.
+  const SWAPPED = `
+    <style>.fragment-only { font-variant-numeric: tabular-nums; }</style>
+    <h2 class="title hover:title" elementtiming="ui-servo-swap">Swapped region</h2>
+    <p class="note invented-utility 10xl">One class here has no rule behind it.</p>
+    <p class="pdf fragment-only">Attribute selectors do not define classes.</p>
+    <div class="bg-gradient-to-r settling">on-contract motion</div>
+    <div class="drifting">140.4ms: off-token by 0.4ms</div>
+    <div class="mixed">one linear segment among beziers</div>
+    <div class="narrow"><div class="hair"></div></div>
+    <div class="wide"></div>
+    <fixture-boom></fixture-boom>
+  `;
+
+  const run = () => {
+    // 1. swap in markup, then synthesise htmx's event as htmx itself would.
+    mount.innerHTML = SWAPPED;
+    dispatchEvent(new CustomEvent('htmx:afterSwap', {
+      detail: { target: mount, elt: mount, xhr: { status: 200 } },
+    }));
+
+    // 2. a failed swap.
+    dispatchEvent(new CustomEvent('htmx:responseError', {
+      detail: {
+        elt: mount,
+        xhr: { status: 500, statusText: 'Internal Server Error' },
+        pathInfo: { requestPath: '/fixture/boom' },
+        requestConfig: { verb: 'get', path: '/fixture/boom' },
+      },
+    }));
+
+    // 3. the documented wasm panic-hook convention.
+    mount.dispatchEvent(new CustomEvent('ui-servo:wasm-panic', {
+      bubbles: true,
+      detail: { message: 'probe fixture: simulated wasm panic', module: 'fixture.wasm' },
+    }));
+
+    // 4. an uncaught error, off any call stack the probe controls.
+    setTimeout(() => { throw new Error('probe fixture: deliberate js-error'); }, 0);
+  };
+
+  const render = () => {
+    const events = window.__PROBE_EVENTS__;
+    log.textContent = events.length
+      ? `${events.length} events, kinds: ${window.__PROBE_KINDS__().join(', ')}`
+      : 'waiting…';
+  };
+  setInterval(render, 250);
+
+  window.__FIXTURE__ = { run, render, mount };
+  addEventListener('DOMContentLoaded', run);
+  if (document.readyState !== 'loading') run();
+})();
+</script>
+</body>
+</html>

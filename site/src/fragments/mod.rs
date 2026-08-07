@@ -1,0 +1,107 @@
+//! Fragments: the gauntlet's unit of work.
+//!
+//! A fragment is a pure function from nothing (for now) to `Markup`. It is what
+//! the explorer mutates, what the preview server serves standalone, what the
+//! probe measures, and what htmx swaps into a live page. Three rules hold for
+//! every one of them, and [`frame`] is where they are enforced rather than
+//! remembered:
+//!
+//! 1. **One root element**, a `<section>`, carrying a fresh `data-span-id`.
+//!    A swap with two roots has no join key and no measurable element timing.
+//! 2. **Allowlisted classes only** — the utility vocabulary that
+//!    `DirectionContract.class_allowlist_seed()` derives from the tokens, all of
+//!    which exist in `site.css`. A class no token can justify is an unreviewed
+//!    escape hatch, and the probe's CSSOM check will report it as one.
+//! 3. **Motion through tokens only** — `var(--motion-duration-*)` and
+//!    `var(--motion-ease-*)`, on `transform`/`opacity`. Hand-typed durations are
+//!    off-contract by construction.
+
+use crate::span::new_span_id;
+use maud::{Markup, html};
+
+mod colophon;
+mod constellation;
+mod dispatch;
+mod project_card;
+mod reading_log;
+
+/// Every fragment the site can serve, in the order they appear in the docs.
+pub const NAMES: [&str; 5] = [
+    "dispatch",
+    "project-card",
+    "reading-log",
+    "colophon",
+    "constellation",
+];
+
+/// Render a fragment by name. `None` is a 404, not a panic: the name arrives
+/// from a URL.
+pub fn render(name: &str) -> Option<Markup> {
+    match name {
+        "dispatch" => Some(dispatch::render()),
+        "project-card" => Some(project_card::render()),
+        "reading-log" => Some(reading_log::render()),
+        "colophon" => Some(colophon::render()),
+        "constellation" => Some(constellation::render()),
+        _ => None,
+    }
+}
+
+/// The fragment root. Nothing in `src/fragments/` builds its own outer element.
+///
+/// `elementtiming` is what lets the probe attribute a `PerformanceElementTiming`
+/// entry to this exact swap; `data-fragment` is what lets a human reading the
+/// evidence file know which function produced the span.
+pub fn frame(name: &str, label: &str, body: Markup) -> Markup {
+    html! {
+        section
+            data-span-id=(new_span_id())
+            data-fragment=(name)
+            elementtiming=(name)
+            aria-label=(label)
+            class="p-md border-border"
+        {
+            (body)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_named_fragment_renders() {
+        for name in NAMES {
+            assert!(render(name).is_some(), "{name} is listed but not wired");
+        }
+    }
+
+    #[test]
+    fn unknown_fragments_are_none() {
+        assert!(render("../etc/passwd").is_none());
+    }
+
+    #[test]
+    fn every_fragment_root_carries_a_span_id() {
+        for name in NAMES {
+            let markup = render(name).unwrap().into_string();
+            assert!(
+                markup.starts_with("<section data-span-id=\""),
+                "{name} does not open with a span-id-bearing section: {markup:.80}"
+            );
+            assert_eq!(
+                markup.matches("<section").count(),
+                markup.matches("data-span-id").count(),
+                "{name} has a section without a span id"
+            );
+        }
+    }
+
+    #[test]
+    fn span_ids_are_fresh_per_render() {
+        let first = render("dispatch").unwrap().into_string();
+        let second = render("dispatch").unwrap().into_string();
+        assert_ne!(first, second);
+    }
+}

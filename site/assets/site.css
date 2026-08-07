@@ -1,0 +1,429 @@
+/* site.css — the only hand-written stylesheet on this site.
+ *
+ * Three rules govern this file:
+ *
+ *   1. Every value is a custom property — from tokens.css where the contract
+ *      supplies one, from the STRUCTURAL CONSTANTS block below where it does
+ *      not. No rule below contains a raw colour, size, duration, easing or
+ *      opacity. The only bare numbers permitted are the ones that are not
+ *      values at all but arithmetic identities and keywords: 0, 1, 100%,
+ *      100vh, `none`, `auto`, `1fr`.
+ *   2. Every class here is one the contract's allowlist seed can justify
+ *      (bg-*, text-*, border-*, type-*, p/px/py/m/mx/my/gap-*, duration-*,
+ *      ease-*) — plus the five htmx runtime lifecycle classes, which the
+ *      library puts in the DOM and which therefore have to be part of the
+ *      probe's vocabulary. The probe's CSSOM check reports any class in the DOM
+ *      that no stylesheet declares, so this file doubles as the vocabulary a
+ *      fragment author may draw on.
+ *   3. The root element's font-size is never restated. See the note above
+ *      `html` below — it is the load-bearing reason every rem token is honest.
+ *
+ * Layout is done on semantic elements, not on classes, so that markup stays
+ * readable and the allowlist stays small.
+ */
+
+/* ------------------------------------------- STRUCTURAL CONSTANTS ---------- *
+ * Values the direction contract does not (yet) express, collected here so that
+ * they are countable and reviewable instead of scattered through the rules.
+ * Candidates for direction.toml v2 — [type] line_heights, [borders],
+ * [opacity]; tracked in site/README.md. Nothing below is an aesthetic choice
+ * that a token could have made for us; each is a structural primitive:
+ * hairline widths, a focus-ring width, a display line-height, a display weight,
+ * a hover opacity, a press offset, and `transparent`.
+ */
+
+:root {
+  --site-line-height-display: 1.1;
+  --site-weight-display: 400;
+  --site-hairline: 1px;
+  --site-focus-ring: 2px;
+  --site-hover-opacity: 0.72;
+  --site-press-offset: 1px;
+  --site-transparent: transparent;
+}
+
+/* ---------------------------------------------------------------- base ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* NOTE: `html` deliberately carries no `font-size`.
+ *
+ * The contract converts px to rem against `[type] rem_base_px = 16`, so every
+ * --type-* and --space-* token in tokens.css is a rem value that is only
+ * correct while the root element resolves 1rem to that same 16px. Setting
+ * `font-size: var(--type-base)` (1.0625rem = 17px) here would make the root
+ * 17px and silently inflate every rem token by 6.25% — --space-base would
+ * compute to 8.5px instead of the contracted 8px, and the whole spacing scale
+ * would drift while every gate still read "on contract".
+ *
+ * The site's 17px body text is applied on `body` instead: rem always resolves
+ * against the root, so a font-size below the root buys the intended reading
+ * size without touching the conversion base. */
+html {
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--type-family-text);
+  line-height: var(--density-line-height);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-size: var(--type-base);
+  padding-inline: var(--space-lg);
+  padding-block: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-xl) * var(--density-space-multiplier));
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--type-family-display);
+  font-weight: var(--site-weight-display);
+  line-height: var(--site-line-height-display);
+  margin-block: 0 var(--space-sm);
+  text-wrap: balance;
+}
+
+p,
+ul,
+ol,
+dl {
+  margin-block: 0 var(--space-md);
+  max-width: var(--density-measure);
+}
+
+ul {
+  list-style: none;
+  padding-inline: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+li {
+  max-width: var(--density-measure);
+}
+
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-md);
+  row-gap: var(--space-xs);
+}
+
+dd {
+  margin-inline-start: 0;
+}
+
+code {
+  font-family: var(--type-family-mono);
+  font-size: var(--type-sm);
+  color: var(--color-accent-2);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration-color: var(--color-border);
+  text-underline-offset: var(--space-xs);
+  transition: opacity var(--motion-duration-quick) var(--motion-ease-standard);
+}
+
+a:hover,
+a:focus-visible {
+  opacity: var(--site-hover-opacity);
+}
+
+:focus-visible {
+  outline: var(--site-focus-ring) solid var(--color-accent-2);
+  outline-offset: var(--space-xs);
+}
+
+/* ----------------------------------------------------------- skip link ---- */
+
+/* Present for keyboard users, out of the layout for everyone else. Styled by
+ * attribute rather than by class so it needs no allowlist entry of its own. */
+a[href="#main"] {
+  position: absolute;
+  inset-block-start: var(--space-sm);
+  inset-inline-start: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: var(--site-hairline) solid var(--color-border);
+  transform: translateY(calc(-1 * var(--space-3xl)));
+  transition: transform var(--motion-duration-base) var(--motion-ease-entrance);
+}
+
+a[href="#main"]:focus-visible {
+  transform: translateY(0);
+}
+
+/* ------------------------------------------------------------ landmarks ---- */
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-block-end: var(--space-sm);
+  border-block-end: var(--site-hairline) solid var(--color-border);
+}
+
+header p {
+  margin-block: 0;
+  font-family: var(--type-family-display);
+  font-size: var(--type-md);
+}
+
+header a {
+  text-decoration: none;
+}
+
+nav ul {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-block: 0;
+  font-size: var(--type-sm);
+}
+
+nav a[aria-current="page"] {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
+}
+
+main {
+  flex: 1;
+  width: 100%;
+}
+
+footer {
+  padding-block-start: var(--space-md);
+  border-block-start: var(--site-hairline) solid var(--color-border);
+  color: var(--color-muted);
+}
+
+footer p {
+  margin-block: 0;
+}
+
+button {
+  font: inherit;
+  background: var(--site-transparent);
+  border: var(--site-hairline) solid var(--color-border);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: transform var(--motion-duration-quick) var(--motion-ease-standard);
+}
+
+button:active {
+  transform: translateY(var(--site-press-offset));
+}
+
+/* ------------------------------------------------------------ fragments ---- */
+
+/* Every fragment root and every swap slot carries a span id, so this selector
+ * is exactly "the sensor-visible units of this page". */
+[data-span-id] {
+  max-width: var(--density-measure);
+}
+
+[data-fragment] {
+  background: var(--color-surface);
+  border: var(--site-hairline) solid var(--color-border);
+  animation: fragment-in var(--motion-duration-base) var(--motion-ease-entrance) both;
+}
+
+[data-fragment] > :last-child {
+  margin-block-end: 0;
+}
+
+/* Compositor-only, per the contract's animatable_properties. */
+@keyframes fragment-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-xs));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------ htmx runtime lifecycle (probe vocabulary) --- *
+ * htmx puts these five classes on elements itself, during a swap, without ever
+ * appearing in our markup: htmx-request (in flight), htmx-swapping and
+ * htmx-settling (the two swap phases), htmx-added (each newly inserted node),
+ * htmx-indicator (opt-in progress affordance). The probe builds its known-class
+ * set from the CSSOM, so any of these that no stylesheet declares is reported
+ * as an `unknown-class` violation on *every swap* — a permanent false positive
+ * that would train everyone to ignore the sensor.
+ *
+ * They are declared here as deliberate no-ops. Each sets an inert custom
+ * property nobody reads rather than an empty block, so a minifier cannot drop
+ * the rule and take the probe's vocabulary with it. Visual behaviour is
+ * unchanged: if this site ever wants a real loading affordance, it must come
+ * from motion tokens like everything else.
+ */
+
+.htmx-request {
+  --site-htmx-lifecycle: request;
+}
+
+.htmx-swapping {
+  --site-htmx-lifecycle: swapping;
+}
+
+.htmx-settling {
+  --site-htmx-lifecycle: settling;
+}
+
+.htmx-added {
+  --site-htmx-lifecycle: added;
+}
+
+.htmx-indicator {
+  --site-htmx-lifecycle: indicator;
+}
+
+/* ------------------------------------------------------- reduced motion ---- */
+
+/* tokens.css already zeroes --motion-duration-* under this query; this is the
+ * consumer-side half of the same promise, for anything that reaches for a
+ * duration indirectly (htmx swaps, the wasm island's animation loop). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------ utilities ---- */
+/* The allowlist, made real. Nothing below invents a value. */
+
+/* colour */
+.bg-background { background-color: var(--color-background); }
+.bg-surface { background-color: var(--color-surface); }
+.bg-text { background-color: var(--color-text); }
+.bg-muted { background-color: var(--color-muted); }
+.bg-border { background-color: var(--color-border); }
+.bg-accent { background-color: var(--color-accent); }
+.bg-accent-2 { background-color: var(--color-accent-2); }
+
+.text-background { color: var(--color-background); }
+.text-surface { color: var(--color-surface); }
+.text-text { color: var(--color-text); }
+.text-muted { color: var(--color-muted); }
+.text-border { color: var(--color-border); }
+.text-accent { color: var(--color-accent); }
+.text-accent-2 { color: var(--color-accent-2); }
+
+.border-background { border-color: var(--color-background); }
+.border-surface { border-color: var(--color-surface); }
+.border-text { border-color: var(--color-text); }
+.border-muted { border-color: var(--color-muted); }
+.border-border { border-color: var(--color-border); }
+.border-accent { border-color: var(--color-accent); }
+.border-accent-2 { border-color: var(--color-accent-2); }
+
+/* type */
+.type-xs { font-size: var(--type-xs); }
+.type-sm { font-size: var(--type-sm); }
+.type-base { font-size: var(--type-base); }
+.type-md { font-size: var(--type-md); }
+.type-lg { font-size: var(--type-lg); }
+.type-xl { font-size: var(--type-xl); }
+.type-2xl { font-size: var(--type-2xl); }
+.type-3xl { font-size: var(--type-3xl); }
+.type-display { font-size: var(--type-display); font-family: var(--type-family-display); }
+
+/* spacing — padding */
+.p-xs { padding: var(--space-xs); }
+.p-sm { padding: var(--space-sm); }
+.p-base { padding: var(--space-base); }
+.p-md { padding: var(--space-md); }
+.p-lg { padding: var(--space-lg); }
+.p-xl { padding: var(--space-xl); }
+.p-2xl { padding: var(--space-2xl); }
+.p-3xl { padding: var(--space-3xl); }
+
+.px-xs { padding-inline: var(--space-xs); }
+.px-sm { padding-inline: var(--space-sm); }
+.px-base { padding-inline: var(--space-base); }
+.px-md { padding-inline: var(--space-md); }
+.px-lg { padding-inline: var(--space-lg); }
+.px-xl { padding-inline: var(--space-xl); }
+.px-2xl { padding-inline: var(--space-2xl); }
+.px-3xl { padding-inline: var(--space-3xl); }
+
+.py-xs { padding-block: var(--space-xs); }
+.py-sm { padding-block: var(--space-sm); }
+.py-base { padding-block: var(--space-base); }
+.py-md { padding-block: var(--space-md); }
+.py-lg { padding-block: var(--space-lg); }
+.py-xl { padding-block: var(--space-xl); }
+.py-2xl { padding-block: var(--space-2xl); }
+.py-3xl { padding-block: var(--space-3xl); }
+
+/* spacing — margin */
+.m-xs { margin: var(--space-xs); }
+.m-sm { margin: var(--space-sm); }
+.m-base { margin: var(--space-base); }
+.m-md { margin: var(--space-md); }
+.m-lg { margin: var(--space-lg); }
+.m-xl { margin: var(--space-xl); }
+.m-2xl { margin: var(--space-2xl); }
+.m-3xl { margin: var(--space-3xl); }
+
+.mx-xs { margin-inline: var(--space-xs); }
+.mx-sm { margin-inline: var(--space-sm); }
+.mx-base { margin-inline: var(--space-base); }
+.mx-md { margin-inline: var(--space-md); }
+.mx-lg { margin-inline: var(--space-lg); }
+.mx-xl { margin-inline: var(--space-xl); }
+.mx-2xl { margin-inline: var(--space-2xl); }
+.mx-3xl { margin-inline: var(--space-3xl); }
+
+.my-xs { margin-block: var(--space-xs); }
+.my-sm { margin-block: var(--space-sm); }
+.my-base { margin-block: var(--space-base); }
+.my-md { margin-block: var(--space-md); }
+.my-lg { margin-block: var(--space-lg); }
+.my-xl { margin-block: var(--space-xl); }
+.my-2xl { margin-block: var(--space-2xl); }
+.my-3xl { margin-block: var(--space-3xl); }
+
+/* spacing — gap (flex/grid containers) */
+.gap-xs { gap: var(--space-xs); }
+.gap-sm { gap: var(--space-sm); }
+.gap-base { gap: var(--space-base); }
+.gap-md { gap: var(--space-md); }
+.gap-lg { gap: var(--space-lg); }
+.gap-xl { gap: var(--space-xl); }
+.gap-2xl { gap: var(--space-2xl); }
+.gap-3xl { gap: var(--space-3xl); }
+
+/* motion — the only durations and easings a fragment may reach for */
+.duration-quick { animation-duration: var(--motion-duration-quick); transition-duration: var(--motion-duration-quick); }
+.duration-base { animation-duration: var(--motion-duration-base); transition-duration: var(--motion-duration-base); }
+.duration-slow { animation-duration: var(--motion-duration-slow); transition-duration: var(--motion-duration-slow); }
+.duration-deliberate { animation-duration: var(--motion-duration-deliberate); transition-duration: var(--motion-duration-deliberate); }
+
+.ease-standard { animation-timing-function: var(--motion-ease-standard); transition-timing-function: var(--motion-ease-standard); }
+.ease-entrance { animation-timing-function: var(--motion-ease-entrance); transition-timing-function: var(--motion-ease-entrance); }
+.ease-exit { animation-timing-function: var(--motion-ease-exit); transition-timing-function: var(--motion-ease-exit); }

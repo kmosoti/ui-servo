@@ -107,10 +107,14 @@ structural, not exhortative:
 
 ## Dependency rule
 
-Arrows are "may import". Every arrow points inward; nothing points at `control` or at
-`adapters`, and there is no edge between them in either direction.
+Arrows are "may import". Inside the hexagon every arrow points inward; nothing points at
+`control` or at `adapters`, and there is no edge between them in either direction. `cli`
+sits outside all of it.
 
 ```
+                        cli  (composition roots)
+              ┌──────────┼──────────┬──────────┐
+              ▼          ▼          ▼          ▼
    control ──────────► ports ◄────────── adapters
       │                  │                  │
       │                  ▼                  │
@@ -123,6 +127,7 @@ Arrows are "may import". Every arrow points inward; nothing points at `control` 
 | `ports` | `domain`, `ports` | pydantic |
 | `control` | `domain`, `ports`, `control` | *none — stdlib only* |
 | `adapters` | `domain`, `ports`, `adapters` | anything |
+| `cli` | anything | anything |
 
 - `ui_servo/domain/` imports **only the standard library and pydantic**. No I/O, no browser,
   no model, no filesystem. Pure functions of parsed data.
@@ -136,6 +141,19 @@ Arrows are "may import". Every arrow points inward; nothing points at `control` 
   Playwright, the model CLIs, the filesystem, HTTP. Any distribution may be imported here —
   but still only `domain`, `ports` and sibling adapters from inside `ui_servo`. An adapter
   reaching for `control` would invert the hexagon, so that edge is forbidden too.
+- `ui_servo/cli/` holds the **composition roots** — `python -m ui_servo.cli.servo` and
+  `python -m ui_servo.cli.promote`. Something has to name a concrete adapter or the hexagon
+  is a diagram rather than a program, and this is that something: unconstrained in what it
+  may import, imported by nothing, containing only entry points. No policy lives here. If a
+  decision in one of these modules could change an outcome, it is in the wrong file.
+
+  This layer exists because of a mistake worth recording. `main()` used to live inside
+  `control` and reach its adapters via `importlib.import_module`, which kept the import
+  graph genuinely cheap — and also made the guard below pass while the dependency was real,
+  since a string argument is not an `import` statement. The rule was being evaded rather
+  than satisfied. The guard now resolves literal `import_module` arguments and refuses
+  computed ones, so the only way to satisfy it is to actually be in a layer that is allowed
+  to make the import.
 
 Enforced by `tests/test_architecture.py`, which walks every module with `ast` (no imports
 executed) and checks both halves of the table: which `ui_servo` packages a layer reaches and
@@ -156,43 +174,49 @@ default), else `direction/direction.toml` in a source checkout.
 ```
 ui-servo/
 ├── direction/
-│   └── direction.toml            reference signal, v1, versioned taste
+│   └── direction.toml            reference signal, versioned taste
 ├── ui_servo/
-│   ├── __init__.py
 │   ├── domain/                   pure: no I/O, stdlib + pydantic only
-│   │   ├── __init__.py
 │   │   ├── contract.py           DirectionContract, MotionTable, token/class derivations
 │   │   ├── evidence.py           span-joined evidence signals
-│   │   ├── data/direction.toml   (wheel only) build-time copy of the contract
-│   │   ├── rubric.py             (planned) per-axis rubric, finding schema
-│   │   ├── blandness.py          (planned) style vector, distance-from-median metric
-│   │   └── archive.py            (planned) MAP-Elites grid over style/density axes
+│   │   ├── verdict.py            rubric axes, findings, pairwise verdicts
+│   │   ├── policy.py             blindness, rotation, self-preference, escalation rules
+│   │   ├── variant.py            StyleVector, blandness, MAP-Elites archive
+│   │   └── data/direction.toml   (wheel only) build-time copy of the contract
 │   ├── ports/
-│   │   ├── sanitizer.py          Tier 0 sanitiser interface
-│   │   ├── store.py              evidence store interface
-│   │   └── browser.py            (planned) Browser, CriticPanel, Clock
-│   ├── control/
-│   │   ├── regulator.py          (planned) fast loop: deterministic correctness
-│   │   ├── critique.py           (planned) slow loop: blind rotated panel
-│   │   └── explore.py            (planned) slow loop: QD variant sampling
-│   └── adapters/
-│       ├── nh3_sanitizer.py      Tier 0 sanitiser over nh3 + tinycss2
-│       ├── jsonl_store.py        append-only span-joined evidence store
-│       └── …                     (planned) playwright browser, CLI critics, beacon ingest
-├── probe/                        Tier 1 in-browser runtime
+│   │   ├── sanitizer.py          class-0 sanitiser interface
+│   │   ├── sensor.py             shadow-browser sensor interface
+│   │   ├── judge.py              critic interface
+│   │   └── store.py              evidence + exemplar store interfaces
+│   ├── control/                  the loops — stdlib only, runnable against fakes
+│   │   ├── regulator.py          fast loop: sense → compare → gate
+│   │   ├── critique.py           slow loop: blind rotated cross-family panel
+│   │   ├── explore.py            slow loop: QD sampling, frontier report
+│   │   ├── servo.py              one full round, composed over ports
+│   │   └── promote.py            gate a pick and write its provenance
+│   ├── adapters/                 the only layer that touches the world
+│   │   ├── nh3_sanitizer.py      class-0 sanitiser over nh3 + tinycss2
+│   │   ├── playwright_sensor.py  screenshots, aria, axe, pixel diff, traces
+│   │   ├── cli_judges.py         claude / codex / agy over the local CLIs
+│   │   ├── jsonl_store.py        append-only span-joined evidence store
+│   │   ├── preview_server.py     serves candidates in the contract's shell
+│   │   ├── beacon_ingest/        probe beacon ingest → evidence store
+│   │   └── vendor/               axe-core, vendored
+│   └── cli/                      composition roots — the only layer naming adapters
+│       ├── servo.py              python -m ui_servo.cli.servo
+│       └── promote.py            python -m ui_servo.cli.promote
+├── probe/probe.js                in-browser sensor runtime
 ├── site/                         axum + htmx + WASM islands — the plant
+│   ├── src/fragments/            the gauntlet's unit of work
+│   ├── assets/fragments/         promoted picks, provenance-verified
+│   └── islands/                  wasm-bindgen crate
+├── demo/                         round 4, end to end, with its evidence
 ├── tools/
 │   ├── specs/                    unit specifications
 │   └── review.sh                 adversarial review harness
-├── tests/
-│   ├── test_contract.py          contract parse, round-trip, derivations
-│   ├── test_architecture.py      the dependency rule, as a test
-│   └── …                         per-unit suites
+├── tests/                        the suites, including the dependency rule itself
 ├── ARCHITECTURE.md
 ├── README.md
 ├── REVIEW_LOG.md                 critic verdicts per unit
 └── pyproject.toml
 ```
-
-Entries marked `(planned)` are units not yet built; the dependency rule above applies to them
-the moment they exist, and the architecture test will start checking them automatically.

@@ -17,13 +17,11 @@ intended outcome -- an ungated edit and a hand-written fragment are the same
 thing wearing different clothes.
 
 Standard library, domain and ports only. The sanitiser arrives as a port, so a
-promotion can be dry-run against a fake in tests without touching a real file.
+promotion can be dry-run against a fake in tests without touching a real file;
+the adapter that satisfies it is chosen in :mod:`ui_servo.cli.promote`.
 """
 
-import argparse
-import importlib
 import re
-import sys
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -55,6 +53,26 @@ def _checked(value: str, *, field: str) -> str:
     return value
 
 DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/assets/fragments")
+
+_SPAN_ID_ATTR: Final[re.Pattern[str]] = re.compile(
+    r"""\s+data-span-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE
+)
+"""A candidate's own span id, which does not survive into the site.
+
+During a round the id is the join key: the probe files every reading under it and
+the panel cites it in verdicts. After promotion it is a lie. The server's `frame`
+stamps a *fresh* id on the element it serves, so a retained inner id means the
+page carries two, and the probe -- which reads the nearest one -- attributes live
+evidence to `hero-v0`, a candidate that stopped existing when the round ended.
+The symptom is not an error; it is a quietly mis-filed sensor reading, which is
+worse. Stripping here rather than in the server keeps the served bytes and the
+hashed bytes identical.
+"""
+
+
+def strip_span_ids(markup: str) -> str:
+    """Remove candidate span ids so the server's fresh one is the only one."""
+    return _SPAN_ID_ATTR.sub("", markup)
 
 
 class PromotionRefused(Exception):
@@ -106,47 +124,7 @@ def promote(
 
     fragments_dir.mkdir(parents=True, exist_ok=True)
     path = fragments_dir / f"{part}.html"
-    body = (result.cleaned_html or markup).strip()
+    # Strip after the gate, so what the sanitiser approved is what gets hashed.
+    body = strip_span_ids(result.cleaned_html or markup).strip()
     path.write_text(render_promoted_file(body, round_id=round_id), encoding="utf-8")
     return Promotion(part=part, round_id=round_id, path=path, digest=body_digest(body))
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python -m ui_servo.control.promote",
-        description="Promote a picked candidate fragment to the live site.",
-    )
-    parser.add_argument("--pick", type=Path, required=True, help="the chosen candidate .html")
-    parser.add_argument("--part", required=True, help="which part of the site this is")
-    parser.add_argument("--round", dest="round_id", required=True, help="the round it came from")
-    parser.add_argument("--contract", type=Path, default=Path("direction/direction.toml"))
-    parser.add_argument("--fragments-dir", type=Path, default=DEFAULT_FRAGMENTS_DIR)
-    args = parser.parse_args(argv)
-
-    # The composition root has to name an adapter, and reaches it the way
-    # servo.main does: through importlib inside the function body, so that
-    # importing this module never drags nh3 in and the dependency rule in
-    # tests/test_architecture.py still describes this file truthfully.
-    nh3_sanitizer = importlib.import_module("ui_servo.adapters.nh3_sanitizer")
-    default_sanitizer = nh3_sanitizer.default_sanitizer
-
-    contract = DirectionContract.from_toml(args.contract.read_text(encoding="utf-8"))
-    try:
-        promotion = promote(
-            args.pick.read_text(encoding="utf-8"),
-            part=args.part,
-            round_id=args.round_id,
-            sanitizer=default_sanitizer(contract),
-            fragments_dir=args.fragments_dir,
-        )
-    except PromotionRefused as refusal:
-        print(refusal, file=sys.stderr)
-        return 1
-
-    print(f"promoted {promotion.part} from round {promotion.round_id} -> {promotion.path}")
-    print(f"  sha256 {promotion.digest}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

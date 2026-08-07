@@ -38,6 +38,19 @@ pub enum StartupError {
     )]
     TokensNotEmitted { path: PathBuf },
 
+    /// A promoted fragment on disk cannot prove it was gated.
+    ///
+    /// Checked at boot rather than on first request, because "the server came
+    /// up" is the signal a deploy watches. A tampered hero that only fails when
+    /// somebody happens to load the home page is a broken site reported as a
+    /// healthy one. Dev mode skips this: a pick under active edit is expected to
+    /// be mid-flight, and there the per-request 500 is the right feedback.
+    #[error(
+        "promoted fragment refused at startup: {0}. Re-promote it through the gauntlet \
+         (uv run python -m ui_servo.control.promote) rather than editing the file."
+    )]
+    UngatedPromotion(String),
+
     #[error("UI_SERVO_PORT={0:?} is not a port number")]
     BadPort(String),
 

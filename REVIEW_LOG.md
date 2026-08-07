@@ -98,3 +98,75 @@ This is a property of the method, not a defect in the code, and the guard is
 correct to escalate rather than accept a single opinion. It is recorded here
 because it constrains how a round is *staffed*, which is not obvious until a
 round comes back unanimously escalated.
+
+---
+
+## U16 — final integration pass
+
+Four U15 criticals remained open after the first fix batch, and running round 4
+found a fifth defect that none of the reviewers had reached. All five are closed.
+
+### The defect the loop found in itself
+
+`site.css` set `[data-fragment] { background: var(--color-surface); border: … }`,
+and `fragments::frame` added `p-md border-border`. So every fragment on the live
+site was served inside a bordered panel — including the promoted hero.
+
+Three things made this worse than an ordinary style bug:
+
+- `direction.toml` names card-like panels an **anti-reference**, and in round 4
+  both critic families independently rejected a candidate for being one, citing
+  `bg-surface` and `border-border` by name. The site was serving the shape the
+  panel had just thrown out.
+- The chrome was applied off `[data-fragment]`, an attribute that exists so the
+  **probe** can join evidence. The class-0 gate reads classes in fragment markup,
+  so no gate could see it. A sensor attribute had quietly acquired visual meaning.
+- The preview shell the candidates were judged in does not apply the frame, so
+  the artefact that was measured and the artefact that was served were not the
+  same object. Every verdict was about markup the site then re-dressed.
+
+Fixed by making both the frame and the sensor selectors carry no visual identity.
+Pinned by `fragments::tests::the_frame_imposes_no_visual_chrome` and
+`state::tests::the_sensor_attributes_carry_no_visual_identity`.
+
+### The remaining U15 criticals
+
+1. **Release-mode startup validation and caching.** `AppState` now verifies every
+   promoted fragment at boot in release mode and serves from the verified map;
+   dev still reads per request, because a pick under active edit should show its
+   500. A tampered pick now fails the deploy instead of the first visitor.
+2. **Stale nested span id.** Promotion strips the candidate's own
+   `data-span-id`; the server's fresh id is the only one on the page. Previously
+   the probe filed live readings under `hero-v0`, a variant that stopped existing
+   when the round ended — a mis-attributed reading rather than an error, which is
+   quieter and worse.
+3. **The `importlib` dodge.** `ui_servo/control/{servo,promote}.py` reached their
+   adapters through `importlib.import_module`, with a docstring arguing it kept
+   the import graph honest. It did keep the graph cheap; it also made the layer
+   guard pass while the dependency was real, because the guard read `import`
+   statements and a string is not one. The rule was being evaded, not satisfied.
+   Composition moved to a new outermost layer, `ui_servo/cli/`, which is allowed
+   to import anything and is imported by nothing. The guard now resolves literal
+   `import_module` arguments and refuses computed ones, and
+   `TestTheGuardItself::test_detects_the_importlib_dodge_that_used_to_pass`
+   asserts it fires on the exact code that used to slip through.
+4. **Promotion tested only against fakes.** `tests/test_promotion_e2e.py` now
+   launches the real binary: clean serve, tampered file, missing provenance, and
+   release-mode boot refusal. Every row of the promotion table in
+   `demo/README.md` is one of these tests.
+
+### Two claims withdrawn
+
+Recorded because both had been reported to the operator as findings:
+
+- **"The critics found a real font bug — the display face isn't loading."** They
+  did report it, but the cause was mine: the preview shell never loaded
+  `site.css`, so rounds 1–3 judged unstyled markup (measured contrast 1.0). It
+  was an artifact of the harness, not a defect in the site.
+- **"The quality-diversity machinery ran in round 1."** It did not. The regulator
+  ignored `sensor_report.style_sample` and the CLI built no anti-corpus, so
+  blandness was `n/a` and the archive placed zero elites in zero cells. Round 4
+  is the first round in which the taste axis was actually measured.
+
+`demo/README.md` §7 carries both retractions, so the repo's own demo says what
+the earlier rounds got wrong rather than only showing the run that worked.

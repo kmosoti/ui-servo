@@ -1,8 +1,14 @@
-# Round 1 — the hero, end to end
+# Round 4 — the hero, end to end
 
 A transcript of one real gauntlet round: four candidates in, one promoted to the
-live site. Nothing here is staged; the commands are the ones in the README and
-the verdicts are what the three CLIs actually returned.
+live site. Nothing here is staged. The commands are the ones in the README, the
+verdicts are what the CLIs actually returned, and the evidence they were computed
+from is committed under `round-4/` so the claims below can be checked rather than
+believed.
+
+This is round **4** because rounds 1–3 were wrong in ways worth recording, and
+§7 records them. A loop whose demo shows only the run that worked is advertising,
+not evidence.
 
 ## 1. Candidates
 
@@ -11,89 +17,118 @@ convention servo parses (`<part>.<family>.<k>.html`):
 
 | File | Shape | Intent |
 |---|---|---|
-| `hero.claude.0.html` | eyebrow → display → lede | conventional editorial opening |
-| `hero.claude.1.html` | bordered card on a surface | the SaaS-shaped control |
-| `hero.claude.2.html` | display → oversized accent line | editorial, no eyebrow |
-| `hero.claude.3.html` | **deliberately broken** | off-allowlist class `hero-shout`, 3000px inline width |
+| `candidates/hero.claude.0.html` | eyebrow → display → lede | conventional editorial opening |
+| `candidates/hero.claude.1.html` | bordered card on a surface | the SaaS-shaped control |
+| `candidates/hero.claude.2.html` | display → oversized accent line | editorial, no eyebrow |
+| `candidates/hero.claude.3.html` | **deliberately broken** | off-allowlist class `hero-shout`, 3000px inline width |
 
 All four are labelled `claude` because one family wrote all four. That is not
-incidental — see *Staffing the panel* below.
+incidental — see §6.
+
+The round was given a written part spec (`hero.part-spec.md`) stating what this
+hero is for. It matters: it is the difference between asking a critic "which is
+better?" and asking "which is closer to this?".
 
 ## 2. The round
 
 ```bash
-uv run python -m ui_servo.control.servo \
-  --candidates <dir> --part hero --round 1 --out evidence/rounds/1
+uv run python -m ui_servo.cli.servo \
+  --candidates demo/candidates --part hero --round 4 \
+  --part-spec demo/hero.part-spec.md --out evidence/rounds/4
 ```
 
 ```
-round 1 / part hero: 3 ranked, 1 rejected by gates, 3 comparison(s), 0 escalated
+round 4 / part hero: 3 ranked, 1 rejected by gates, 3 comparison(s), 1 escalated
   REJECTED hero.claude.3: sanitizer-accepted, no-runtime-errors, no-unknown-class,
                           no-overflow, no-motion-violation, axe-clean,
                           reduced-motion-honoured
-  #1 hero.claude.2 (2 pts, 2W/0D/0L)
-  #2 hero.claude.0 (1 pts, 1W/0D/1L)
-  #3 hero.claude.1 (0 pts, 0W/0D/2L)
-  frontier report: evidence/rounds/1/frontier.html
+  #1 hero.claude.0 (1.5 pts, 1W/1D/0L, blandness 0.671)
+  #2 hero.claude.2 (1.5 pts, 1W/1D/0L, blandness 0.668)
+  #3 hero.claude.1 (0 pts, 0W/0D/2L, blandness 0.673)
+  ESCALATED cmp-01005a64816f: only 1 family voted; a panel needs at least 2
+                              decorrelated critics
 ```
 
-**The broken candidate never reached a judge.** It failed the deterministic
-gates and left the round carrying the gate that stopped it — a work item a
-builder can act on for zero model tokens. That is the loop's central economy,
-and it is visible in the evidence: no judge signal references its span.
+**The broken candidate never reached a judge.** It failed the deterministic gates
+and left the round carrying the gate that stopped it — a work item a builder can
+act on for zero model tokens. That is the loop's central economy, and it is
+visible in `round-4/`: no judge signal references its span.
+
+**#1 and #2 tied on points.** The ordering between them is a tiebreak, not a
+verdict. The panel separated the card from the two editorial openings; it did not
+claim to separate those two from each other, and this report does not pretend
+otherwise.
 
 ## 3. What the critics said
 
-Two families judged every comparison (the third built the candidates and was
-disqualified from judging them). Both had to cite selectors; a finding without
-one is rejected and re-asked.
+Two families judged (the third built the candidates and was excluded from judging
+them). Both had to cite selectors; a finding without one is rejected and re-asked.
+Verdicts in full under `round-4/evidence/`.
+
+> **gemini** · winner A · confidence 1.00
+> *"Uses `bg-surface` and `border-border`, directly violating the explicit
+> anti-reference constraint against card-like [framing]"*
 
 > **codex** · winner A · confidence 0.96
-> `[hierarchy] section[data-span-id="hero-v1"]` — *"collapses the hero into
-> three similarly weighted lines; the undersized display head…"*
+> *"Candidate B puts the entire hero inside a padded `bg-surface` and
+> `border-border` panel, exactly the card-like anti-reference"*
 
-> **gemini** · winner A · confidence 0.95
-> `[direction_conformance] section[data-span-id='hero-v1']` — *"Uses surface
-> background and border classes to create a card-like container, violating the
-> requirement…"*
-> `[distinctiveness]` — *"The containerized approach feels like a default
-> component library or SaaS landing page…"*
+Two decorrelated families, judging blind, rejected the same candidate and named
+the same anti-reference — a line of `direction/direction.toml` — as the reason.
+That is the taste machinery doing the one thing a generic "is this good UI?"
+prompt cannot: scoring against a written direction instead of against the corpus
+median.
 
-Both families, independently and blind, identified the bordered card as
-resembling a **named anti-reference** in `direction/direction.toml`. That is the
-taste machinery doing the one thing a generic "is this good UI?" prompt cannot:
-scoring against a written direction instead of the corpus median.
+Blandness is measured, not asserted: each survivor's style vector is compared to
+an anti-corpus of stock-template samples. The three cluster tightly
+(0.668–0.673), which is a fair report of a weak signal from a single builder
+family rather than a result.
 
-They also both flagged that the display face renders as browser-default serif —
-a genuine defect in the site, not in the candidates (Instrument Serif is named
-in the contract but no web font is vendored). The panel found a real bug while
-judging something else.
+## 4. The bug this round found in the site
 
-## 4. Promotion
+The panel rejected the card. The site was then serving **every fragment inside a
+card** — `[data-fragment] { background: var(--color-surface); border: … }` in
+`site.css`, hung off the attribute the *probe* uses to join evidence. The class-0
+gate reads classes in fragment markup, so it could not see this, and the preview
+shell the candidates were judged in does not apply it. The loop was rejecting a
+shape the stylesheet then imposed on the winner.
+
+Fixed in `site.css` and `fragments::frame`, and pinned by two tests
+(`the_frame_imposes_no_visual_chrome`,
+`the_sensor_attributes_carry_no_visual_identity`) that fail if visual identity is
+ever hung off a sensor attribute again. This is what the round is actually worth:
+not "the panel picked a hero", but "the panel's own judgement, taken seriously,
+exposed a place where the instrument and the artefact had drifted apart".
+
+## 5. Promotion
 
 ```bash
-uv run python -m ui_servo.control.promote --pick hero.claude.2.html --part hero --round 1
-# promoted hero from round 1 -> site/assets/fragments/hero.html
-#   sha256 32bf4535ef0f7cb83ae606c514cf41bce67bfbdba64d03a94a2e62e3f830831a
+uv run python -m ui_servo.cli.promote --pick demo/candidates/hero.claude.0.html \
+  --part hero --round 4
+# promoted hero from round 4 -> site/assets/fragments/hero.html
+#   sha256 80ae20494ba67aa96a7bba3640639481034b22e89c1903ba741943ea8aae9900
 ```
 
-Promotion re-runs the class-0 sanitiser over the pick and writes it under a
-provenance comment:
+Promotion re-runs the class-0 sanitiser over the pick, strips the candidate's own
+`data-span-id` (the join key belongs to the round; the server stamps a fresh one),
+and writes the result under a provenance comment:
 
 ```html
-<!-- ui-servo: gated round=1 sha256=32bf4535… -->
+<!-- ui-servo: gated round=4 sha256=80ae2049… -->
 ```
 
-The Rust server verifies that comment **and** the hash on every request. Proof
-it is not decoration:
+The Rust server verifies that comment **and** the hash — at boot for every
+promoted file in release mode, so a tampered pick fails the deploy rather than
+the first visitor. Proof it is not decoration:
 
 | Action | Result |
 |---|---|
 | Serve the promoted hero | `200`, wrapped in a fresh `data-span-id` |
-| Append one line to the file by hand | `500` on `/fragments/promoted/hero`; the home page falls back to the placeholder and the smuggled markup never renders |
+| Append one line to the file by hand | `500` on `/fragments/promoted/hero`; the home page refuses rather than falling back, and the smuggled markup never renders |
 | Drop in a fragment with no provenance | refused — "it was never gated" |
+| Start in release mode with either of the above | the process does not start |
 
-## 5. Staffing the panel
+## 6. Staffing the panel
 
 The first live round escalated **all three** comparisons. Not a bug: with three
 judging families and a self-preference guard, a comparison between candidates
@@ -101,16 +136,30 @@ from two different families excludes two judges and leaves one, and one vote can
 never satisfy "at least two decorrelated critics".
 
 Eligible judges = `panel_families − families({A, B})`. For a three-family panel,
-both candidates in a comparison must come from at most one family. Rerun with a
-single builder family: **0 escalations, decisive ordering.** The constraint is
-recorded in `REVIEW_LOG.md`; it governs how a round is *staffed*, which is not
-obvious until a round comes back unanimously escalated.
+both candidates in a comparison must come from at most one family — hence one
+builder family here. Round 4 still escalated one comparison for the same
+structural reason, and the report says so rather than quietly averaging it away.
 
-## 6. The site
+## 7. What the earlier rounds got wrong
+
+Recorded because a demo that hides its failed runs is not evidence.
+
+| Round | Defect | Consequence |
+|---|---|---|
+| 1 | The preview shell never loaded `site.css` | Candidates were judged **unstyled** — measured contrast 1.0. Both families reported the display font as browser-default serif, which an earlier version of this file wrote up as "the panel found a real font bug in the site". It was not: it was an artifact of the harness. That claim is withdrawn. |
+| 1–3 | The regulator ignored `sensor_report.style_sample`; the CLI built no anti-corpus | Blandness reported `n/a` and MAP-Elites placed **zero elites in zero cells**. An earlier version of this file implied the quality-diversity machinery had run in round 1. It had not. |
+| 1–3 | No part spec | Critics compared against a global direction with no statement of what *this* part is for. The verdicts were correspondingly vaguer. |
+| 4 | `[data-fragment]` chrome (§4) | Found by this round; fixed before promotion. |
+
+Rounds 1–3 are also why the archive is sparsely occupied (`occupied: 2 / 27`):
+three of the four rounds could not place an elite, because they could not measure
+one.
+
+## 8. The site
 
 ![The home page after promotion](site-home.png)
 
-The hero at the top of that page is `hero.claude.2` — chosen by the panel,
-gated at promotion, and served with its provenance verified. Below it, an htmx
+The hero at the top of that page is `hero.claude.0` — chosen by the panel, gated
+at promotion, and served with its provenance verified at boot. Below it, an htmx
 fragment swap and a Rust→WASM island, both instrumented by the same probe that
 measured the candidates.

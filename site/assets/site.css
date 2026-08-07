@@ -245,9 +245,23 @@ button:active {
   max-width: var(--density-measure);
 }
 
+/* Behaviour only. Being a fragment means "this arrived as a unit and the sensors
+ * can see it" — it must not also mean "this looks like a card".
+ *
+ * This rule used to set `background: var(--color-surface)` and a hairline
+ * border, and that was the most expensive mistake in the repo. `direction.toml`
+ * names card-like panels as an anti-reference; in round 4 both critic families
+ * independently threw out a hero for exactly that shape, citing `bg-surface` and
+ * `border-border` by name. Meanwhile every fragment on the live site, including
+ * the winner, was being served inside that same panel — applied here, off a
+ * `data-` attribute that exists so the probe can join evidence. The class-0 gate
+ * reads classes in fragment markup and could not see it. The loop was rejecting
+ * a shape the stylesheet then imposed on the survivor.
+ *
+ * So visual identity belongs in the fragment's own classes, where the gate reads
+ * it and the panel judges it. What stays here is the entrance animation, which
+ * is a property of arriving rather than of looking like anything. */
 [data-fragment] {
-  background: var(--color-surface);
-  border: var(--site-hairline) solid var(--color-border);
   animation: fragment-in var(--motion-duration-base) var(--motion-ease-entrance) both;
 }
 

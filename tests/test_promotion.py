@@ -16,6 +16,7 @@ from ui_servo.control.promote import (
     body_digest,
     promote,
     render_promoted_file,
+    strip_span_ids,
 )
 from ui_servo.domain.contract import DirectionContract
 from ui_servo.ports.sanitizer import SanitizeResult, SanitizerPort, Violation, ViolationKind
@@ -58,8 +59,10 @@ class TestPromotion:
         )
         written = promotion.path.read_text()
         assert written.startswith("<!-- ui-servo: gated round=1 sha256=")
-        assert GOOD in written
-        assert promotion.digest == sha256(GOOD.strip().encode()).hexdigest()
+        # The body, minus the candidate's own span id — see
+        # test_the_candidates_span_id_does_not_survive_promotion.
+        assert strip_span_ids(GOOD) in written
+        assert promotion.digest == sha256(strip_span_ids(GOOD).strip().encode()).hexdigest()
 
     def test_a_pick_that_fails_the_gate_is_not_written_at_all(self, tmp_path: Path) -> None:
         with pytest.raises(PromotionRefused, match="hero-shout"):
@@ -79,6 +82,42 @@ class TestPromotion:
         header, _, body = rendered.partition("\n")
         assert body_digest(body) in header
 
+    def test_the_candidates_span_id_does_not_survive_promotion(self, tmp_path: Path) -> None:
+        """The join key belongs to the round, not to the site.
+
+        The server's ``frame`` stamps a fresh span id on what it serves. A
+        retained inner id means the page carries two, and the probe files live
+        readings under a candidate that stopped existing when the round ended —
+        a mis-attributed sensor reading, which is quieter and worse than an error.
+        """
+        promotion = promote(
+            GOOD, part="hero", round_id="4", sanitizer=_Accepting(), fragments_dir=tmp_path
+        )
+        written = promotion.path.read_text()
+        assert "data-span-id" not in written
+        assert 'class="my-3xl"' in written, "stripping the id must not disturb other attributes"
+        # The hash covers the stripped body, so the server still verifies it.
+        _, _, body = written.partition("\n")
+        assert body_digest(body) == promotion.digest
+
+    @pytest.mark.parametrize(
+        "spelling",
+        [
+            '<section data-span-id="hero-v0" class="my-3xl">x</section>',
+            "<section data-span-id='hero-v0' class='my-3xl'>x</section>",
+            "<section data-span-id=hero-v0 class='my-3xl'>x</section>",
+            '<section  DATA-SPAN-ID = "hero-v0"  class="my-3xl">x</section>',
+            '<div data-span-id="a"><p data-span-id="b">nested</p></div>',
+        ],
+    )
+    def test_every_spelling_of_the_attribute_is_stripped(self, spelling: str) -> None:
+        assert "data-span-id" not in strip_span_ids(spelling).lower()
+
+    def test_stripping_leaves_lookalike_attributes_alone(self) -> None:
+        """`data-span-id-note` and `id` are different attributes, not this one."""
+        kept = '<section id="hero" data-span-idea="x" aria-describedby="data-span-id">y</section>'
+        assert strip_span_ids(kept) == kept
+
     def test_promoting_twice_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         promote(GOOD, part="hero", round_id="1", sanitizer=_Accepting(), fragments_dir=tmp_path)
         second = '<section data-span-id="hero-v9" class="my-xl">second</section>'
@@ -86,7 +125,7 @@ class TestPromotion:
             second, part="hero", round_id="2", sanitizer=_Accepting(), fragments_dir=tmp_path
         )
         written = promotion.path.read_text()
-        assert "hero-v9" in written and "hero-v2" not in written
+        assert "second" in written and "Hi" not in written
         assert written.count("<!-- ui-servo: gated") == 1
 
 

@@ -138,7 +138,7 @@ system: models are only ever asked questions machines genuinely cannot answer.
 `ui_servo/control/servo.py` — this exact invocation is the contract):
 
 ```bash
-uv run python -m ui_servo.control.servo \
+uv run python -m ui_servo.cli.servo \
   --candidates evidence/rounds/<round>/candidates \
   --part <part> \
   --round <round> \

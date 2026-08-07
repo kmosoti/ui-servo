@@ -1,0 +1,1063 @@
+{
+  "blind_map": [
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-d130df28c71c",
+      "html": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.A.11e038481854.html",
+      "label": "A",
+      "ref": "cand-11e038481854",
+      "screenshot": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.A.11e038481854.png",
+      "variant_id": "hero.claude.0"
+    },
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-d130df28c71c",
+      "html": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.B.71dac6bc0fde.html",
+      "label": "B",
+      "ref": "cand-71dac6bc0fde",
+      "screenshot": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.B.71dac6bc0fde.png",
+      "variant_id": "hero.claude.1"
+    },
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-01005a64816f",
+      "html": "evidence/rounds/4/blind/cmp-01005a64816f/hero.A.41276562c580.html",
+      "label": "A",
+      "ref": "cand-41276562c580",
+      "screenshot": "evidence/rounds/4/blind/cmp-01005a64816f/hero.A.41276562c580.png",
+      "variant_id": "hero.claude.0"
+    },
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-01005a64816f",
+      "html": "evidence/rounds/4/blind/cmp-01005a64816f/hero.B.8219bb6e55c2.html",
+      "label": "B",
+      "ref": "cand-8219bb6e55c2",
+      "screenshot": "evidence/rounds/4/blind/cmp-01005a64816f/hero.B.8219bb6e55c2.png",
+      "variant_id": "hero.claude.2"
+    },
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-26c1252c854d",
+      "html": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.A.3aed2853f914.html",
+      "label": "A",
+      "ref": "cand-3aed2853f914",
+      "screenshot": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.A.3aed2853f914.png",
+      "variant_id": "hero.claude.1"
+    },
+    {
+      "builder_family": "claude",
+      "comparison_id": "cmp-26c1252c854d",
+      "html": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.B.f6f8d496e048.html",
+      "label": "B",
+      "ref": "cand-f6f8d496e048",
+      "screenshot": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.B.f6f8d496e048.png",
+      "variant_id": "hero.claude.2"
+    }
+  ],
+  "comparisons": [
+    {
+      "A": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-d130df28c71c",
+        "html": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.A.11e038481854.html",
+        "label": "A",
+        "ref": "cand-11e038481854",
+        "screenshot": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.A.11e038481854.png",
+        "variant_id": "hero.claude.0"
+      },
+      "B": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-d130df28c71c",
+        "html": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.B.71dac6bc0fde.html",
+        "label": "B",
+        "ref": "cand-71dac6bc0fde",
+        "screenshot": "evidence/rounds/4/blind/cmp-d130df28c71c/hero.B.71dac6bc0fde.png",
+        "variant_id": "hero.claude.1"
+      },
+      "comparison_id": "cmp-d130df28c71c",
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border, directly violating the explicit anti-reference constraint against card-like component framing.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The padded card layout with a surface background makes the hero read like a generic SaaS product landing page widget rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Introduces surface background and border colors, undermining the specified 'warm dark ground' editorial palette in favor of a product-like card style.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Candidate B puts the entire hero inside a padded bg-surface and border-border panel, exactly the card-like anti-reference prohibited by the part spec.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Candidate B's bordered surface, compact headline stack, accent strapline, and supporting copy form a generic product-landing hero that could belong to almost any SaaS site.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate B supplies the amber primary but no electric-cyan counterweight anywhere in the hero, leaving the prescribed two-accent tension incomplete.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-accent",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "Candidate A uses this slot for a location/status kicker rather than a clear one-line position, so the required statement of what Kennedy does is deferred into a long paragraph.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-sm:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate A's dominant name is off-white while its only vivid accent is cyan; the molten amber primary is reduced to muted prose rather than functioning as the primary color signal.",
+          "selector": "section[data-span-id=\"hero-v0\"] > h1",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate A promotes a long, multi-line explanatory paragraph to type-lg, competing with the display name and making the hierarchy less disciplined than the editorial reference.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate A's first supporting paragraph is visually oversized and spans five lines, making the opening heavier than the restrained one-idea-per-screen target.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate B's prose is abstract and awkwardly phrased, weakening the plain-spoken text-face contrast that should support the editorial display setting.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-muted",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate B concentrates all content inside a shallow inset panel while leaving the rest of the viewport inert, producing component padding rather than page-like editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        }
+      ],
+      "outcome": {
+        "detail": "2 of 2 families chose A (A=2, B=0, tie=0)",
+        "status": "winner",
+        "tally": {
+          "A": 2,
+          "B": 0,
+          "tie": 0
+        },
+        "voting_families": [
+          "gemini",
+          "codex"
+        ],
+        "winner": "A"
+      },
+      "silent_families": [],
+      "voting_families": [
+        "gemini",
+        "codex"
+      ]
+    },
+    {
+      "A": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-01005a64816f",
+        "html": "evidence/rounds/4/blind/cmp-01005a64816f/hero.A.41276562c580.html",
+        "label": "A",
+        "ref": "cand-41276562c580",
+        "screenshot": "evidence/rounds/4/blind/cmp-01005a64816f/hero.A.41276562c580.png",
+        "variant_id": "hero.claude.0"
+      },
+      "B": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-01005a64816f",
+        "html": "evidence/rounds/4/blind/cmp-01005a64816f/hero.B.8219bb6e55c2.html",
+        "label": "B",
+        "ref": "cand-8219bb6e55c2",
+        "screenshot": "evidence/rounds/4/blind/cmp-01005a64816f/hero.B.8219bb6e55c2.png",
+        "variant_id": "hero.claude.2"
+      },
+      "comparison_id": "cmp-01005a64816f",
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "The cyan kicker gives location and process posture, but it does not provide the required one-line position or clearly state what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The first supporting paragraph is set nearly as a subheadline, spans four prominent lines, and competes with the display name instead of behaving as plain-spoken supporting prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "The oversized paragraph consumes too much of the opening screen and creates a loose, billboard-like text block rather than the bar's dense-but-never-cramped editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Copy about fragments being gated, rendered, and watched turns the person into a demonstration of a system; this reads closer to product-proof landing copy than a personal introduction.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:last-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan is confined to a small eyebrow while the largest non-display text uses muted beige, so the cyan counterweight is too weak to structure the composition.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The large sans-serif prose has a heavy, display-like presence and weakens the intended contrast between one editorial serif display and restrained plain-text prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The supposed position line is an abstract slogan rather than a concrete role, and it wraps to two lines in the shown viewport, missing the requirement for one line of position.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The large cyan slogan occupies nearly as much visual territory as the name and becomes a competing headline, though the hierarchy remains cleaner than Candidate A.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "\u201cSystems that hold a standard\u201d is polished but broad enough to serve a consultancy or software product; it does not identify a distinctive personal practice without relying on the paragraph below.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The final status line is small and visually detached, reading like auxiliary metadata rather than part of a deliberately paced editorial paragraph sequence.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:last-child",
+          "severity": "minor"
+        }
+      ],
+      "outcome": {
+        "detail": "only 1 family voted; a panel needs at least 2 decorrelated critics",
+        "status": "escalate",
+        "tally": {
+          "A": 0,
+          "B": 1,
+          "tie": 0
+        },
+        "voting_families": [
+          "codex"
+        ],
+        "winner": null
+      },
+      "silent_families": [
+        "gemini"
+      ],
+      "voting_families": [
+        "codex"
+      ]
+    },
+    {
+      "A": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-26c1252c854d",
+        "html": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.A.3aed2853f914.html",
+        "label": "A",
+        "ref": "cand-3aed2853f914",
+        "screenshot": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.A.3aed2853f914.png",
+        "variant_id": "hero.claude.1"
+      },
+      "B": {
+        "builder_family": "claude",
+        "comparison_id": "cmp-26c1252c854d",
+        "html": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.B.f6f8d496e048.html",
+        "label": "B",
+        "ref": "cand-f6f8d496e048",
+        "screenshot": "evidence/rounds/4/blind/cmp-26c1252c854d/hero.B.f6f8d496e048.png",
+        "variant_id": "hero.claude.2"
+      },
+      "comparison_id": "cmp-26c1252c854d",
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "The filled surface and border create exactly the card-like framing named as the anti-reference; the person is presented as a boxed product component instead of a well-set editorial page.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The abstract automation thesis and closing line \"That is what this is\" read like product-positioning copy; they reveal little concrete or personal about Kennedy and could sit on a generic AI tooling landing page.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(2)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The required one-line position wraps across two lines, and its aphoristic wording is a tagline rather than a clear statement of what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan owns the largest and most forceful colored text, reversing the specified relationship in which molten amber is primary and cyan is only the counterweight.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "\"Control systems \u00b7 interfaces \u00b7 evidence over argument\" is a keyword strapline, not a grammatical one-line position, which pushes the hero toward portfolio-product taxonomy.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "The warm dark and amber primary are on-direction, but the composition contains no visible electric-cyan counterweight, leaving the palette less distinctive than the seven-role contract.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "The inset panel compresses all content into a shallow bounded rectangle with uniform padding; it feels like a dashboard card rather than editorial rhythm distributed across the opening screen.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The \"Currently\" line drops to a small, low-contrast footnote while being one of only two supporting paragraphs, making the lower end of the hierarchy feel prematurely diminished.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(3)",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The bright amber sans-serif strapline has the familiar visual grammar of a SaaS subheading; it does not exploit the editorial display/plain-text contrast with the restraint of the reference direction.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Although Candidate A becomes specific and personal in its supporting copy, the lead claim is still a polished standards-oriented slogan that could headline many infrastructure or governance products.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border framing, directly violating the explicit anti-reference that a card is a component and not a person.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The card layout makes the section read like a stock SaaS product landing page rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "Including a third paragraph risks making the hero read like an about page, even if technically split between position and supporting text.",
+          "selector": "section[data-span-id='hero-v2'] p.type-sm",
+          "severity": "minor"
+        }
+      ],
+      "outcome": {
+        "detail": "2 of 2 families chose B (A=0, B=2, tie=0)",
+        "status": "winner",
+        "tally": {
+          "A": 0,
+          "B": 2,
+          "tie": 0
+        },
+        "voting_families": [
+          "codex",
+          "gemini"
+        ],
+        "winner": "B"
+      },
+      "silent_families": [],
+      "voting_families": [
+        "codex",
+        "gemini"
+      ]
+    }
+  ],
+  "coverage": {
+    "best_fitness": 1.25,
+    "empty_cells": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        2
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        1,
+        1
+      ],
+      [
+        0,
+        1,
+        2
+      ],
+      [
+        0,
+        2,
+        0
+      ],
+      [
+        0,
+        2,
+        1
+      ],
+      [
+        0,
+        2,
+        2
+      ],
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        1
+      ],
+      [
+        1,
+        0,
+        2
+      ],
+      [
+        1,
+        1,
+        1
+      ],
+      [
+        1,
+        1,
+        2
+      ],
+      [
+        1,
+        2,
+        1
+      ],
+      [
+        1,
+        2,
+        2
+      ],
+      [
+        2,
+        0,
+        0
+      ],
+      [
+        2,
+        0,
+        1
+      ],
+      [
+        2,
+        0,
+        2
+      ],
+      [
+        2,
+        1,
+        0
+      ],
+      [
+        2,
+        1,
+        1
+      ],
+      [
+        2,
+        1,
+        2
+      ],
+      [
+        2,
+        2,
+        0
+      ],
+      [
+        2,
+        2,
+        1
+      ],
+      [
+        2,
+        2,
+        2
+      ]
+    ],
+    "held_by_incumbent": 1,
+    "mean_fitness": 0.6310578168866988,
+    "occupied": 2,
+    "placed": 2,
+    "qd_score": 1.2621156337733976,
+    "resolution": 3,
+    "skipped_without_style_vector": [],
+    "total": 27
+  },
+  "escalations": [
+    {
+      "comparison_id": "cmp-01005a64816f",
+      "detail": "only 1 family voted; a panel needs at least 2 decorrelated critics",
+      "screenshots": [
+        "evidence/rounds/4/blind/cmp-01005a64816f/hero.A.41276562c580.png",
+        "evidence/rounds/4/blind/cmp-01005a64816f/hero.B.8219bb6e55c2.png"
+      ],
+      "tally": {
+        "A": 0,
+        "B": 1,
+        "tie": 0
+      },
+      "variants": [
+        "hero.claude.0",
+        "hero.claude.2"
+      ],
+      "voting_families": [
+        "codex"
+      ]
+    }
+  ],
+  "not_argued": [],
+  "part": "hero",
+  "ranked": [
+    {
+      "blandness": 0.6708194435018211,
+      "builder_family": "claude",
+      "draws": 1,
+      "escalations": 1,
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border, directly violating the explicit anti-reference constraint against card-like component framing.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The padded card layout with a surface background makes the hero read like a generic SaaS product landing page widget rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Introduces surface background and border colors, undermining the specified 'warm dark ground' editorial palette in favor of a product-like card style.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Candidate B puts the entire hero inside a padded bg-surface and border-border panel, exactly the card-like anti-reference prohibited by the part spec.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Candidate B's bordered surface, compact headline stack, accent strapline, and supporting copy form a generic product-landing hero that could belong to almost any SaaS site.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate B supplies the amber primary but no electric-cyan counterweight anywhere in the hero, leaving the prescribed two-accent tension incomplete.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-accent",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "Candidate A uses this slot for a location/status kicker rather than a clear one-line position, so the required statement of what Kennedy does is deferred into a long paragraph.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-sm:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate A's dominant name is off-white while its only vivid accent is cyan; the molten amber primary is reduced to muted prose rather than functioning as the primary color signal.",
+          "selector": "section[data-span-id=\"hero-v0\"] > h1",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate A promotes a long, multi-line explanatory paragraph to type-lg, competing with the display name and making the hierarchy less disciplined than the editorial reference.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate A's first supporting paragraph is visually oversized and spans five lines, making the opening heavier than the restrained one-idea-per-screen target.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate B's prose is abstract and awkwardly phrased, weakening the plain-spoken text-face contrast that should support the editorial display setting.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-muted",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate B concentrates all content inside a shallow inset panel while leaving the rest of the viewport inert, producing component padding rather than page-like editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The cyan kicker gives location and process posture, but it does not provide the required one-line position or clearly state what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The first supporting paragraph is set nearly as a subheadline, spans four prominent lines, and competes with the display name instead of behaving as plain-spoken supporting prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "The oversized paragraph consumes too much of the opening screen and creates a loose, billboard-like text block rather than the bar's dense-but-never-cramped editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Copy about fragments being gated, rendered, and watched turns the person into a demonstration of a system; this reads closer to product-proof landing copy than a personal introduction.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:last-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan is confined to a small eyebrow while the largest non-display text uses muted beige, so the cyan counterweight is too weak to structure the composition.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The large sans-serif prose has a heavy, display-like presence and weakens the intended contrast between one editorial serif display and restrained plain-text prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The supposed position line is an abstract slogan rather than a concrete role, and it wraps to two lines in the shown viewport, missing the requirement for one line of position.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The large cyan slogan occupies nearly as much visual territory as the name and becomes a competing headline, though the hierarchy remains cleaner than Candidate A.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "\u201cSystems that hold a standard\u201d is polished but broad enough to serve a consultancy or software product; it does not identify a distinctive personal practice without relying on the paragraph below.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The final status line is small and visually detached, reading like auxiliary metadata rather than part of a deliberately paced editorial paragraph sequence.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:last-child",
+          "severity": "minor"
+        }
+      ],
+      "losses": 0,
+      "part": "hero",
+      "rank": 1,
+      "score": 1.5,
+      "variant_id": "hero.claude.0",
+      "wins": 1
+    },
+    {
+      "blandness": 0.6681214724643875,
+      "builder_family": "claude",
+      "draws": 1,
+      "escalations": 1,
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "The cyan kicker gives location and process posture, but it does not provide the required one-line position or clearly state what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The first supporting paragraph is set nearly as a subheadline, spans four prominent lines, and competes with the display name instead of behaving as plain-spoken supporting prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "The oversized paragraph consumes too much of the opening screen and creates a loose, billboard-like text block rather than the bar's dense-but-never-cramped editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Copy about fragments being gated, rendered, and watched turns the person into a demonstration of a system; this reads closer to product-proof landing copy than a personal introduction.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:last-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan is confined to a small eyebrow while the largest non-display text uses muted beige, so the cyan counterweight is too weak to structure the composition.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p:first-child",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The large sans-serif prose has a heavy, display-like presence and weakens the intended contrast between one editorial serif display and restrained plain-text prose.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The supposed position line is an abstract slogan rather than a concrete role, and it wraps to two lines in the shown viewport, missing the requirement for one line of position.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The large cyan slogan occupies nearly as much visual territory as the name and becomes a competing headline, though the hierarchy remains cleaner than Candidate A.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "\u201cSystems that hold a standard\u201d is polished but broad enough to serve a consultancy or software product; it does not identify a distinctive personal practice without relying on the paragraph below.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p.type-xl",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The final status line is small and visually detached, reading like auxiliary metadata rather than part of a deliberately paced editorial paragraph sequence.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:last-child",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The filled surface and border create exactly the card-like framing named as the anti-reference; the person is presented as a boxed product component instead of a well-set editorial page.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The abstract automation thesis and closing line \"That is what this is\" read like product-positioning copy; they reveal little concrete or personal about Kennedy and could sit on a generic AI tooling landing page.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(2)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The required one-line position wraps across two lines, and its aphoristic wording is a tagline rather than a clear statement of what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan owns the largest and most forceful colored text, reversing the specified relationship in which molten amber is primary and cyan is only the counterweight.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "\"Control systems \u00b7 interfaces \u00b7 evidence over argument\" is a keyword strapline, not a grammatical one-line position, which pushes the hero toward portfolio-product taxonomy.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "The warm dark and amber primary are on-direction, but the composition contains no visible electric-cyan counterweight, leaving the palette less distinctive than the seven-role contract.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "The inset panel compresses all content into a shallow bounded rectangle with uniform padding; it feels like a dashboard card rather than editorial rhythm distributed across the opening screen.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The \"Currently\" line drops to a small, low-contrast footnote while being one of only two supporting paragraphs, making the lower end of the hierarchy feel prematurely diminished.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(3)",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The bright amber sans-serif strapline has the familiar visual grammar of a SaaS subheading; it does not exploit the editorial display/plain-text contrast with the restraint of the reference direction.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Although Candidate A becomes specific and personal in its supporting copy, the lead claim is still a polished standards-oriented slogan that could headline many infrastructure or governance products.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border framing, directly violating the explicit anti-reference that a card is a component and not a person.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The card layout makes the section read like a stock SaaS product landing page rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "Including a third paragraph risks making the hero read like an about page, even if technically split between position and supporting text.",
+          "selector": "section[data-span-id='hero-v2'] p.type-sm",
+          "severity": "minor"
+        }
+      ],
+      "losses": 0,
+      "part": "hero",
+      "rank": 2,
+      "score": 1.5,
+      "variant_id": "hero.claude.2",
+      "wins": 1
+    },
+    {
+      "blandness": 0.6727052289338311,
+      "builder_family": "claude",
+      "draws": 0,
+      "escalations": 0,
+      "findings": [
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border, directly violating the explicit anti-reference constraint against card-like component framing.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The padded card layout with a surface background makes the hero read like a generic SaaS product landing page widget rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Introduces surface background and border colors, undermining the specified 'warm dark ground' editorial palette in favor of a product-like card style.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Candidate B puts the entire hero inside a padded bg-surface and border-border panel, exactly the card-like anti-reference prohibited by the part spec.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Candidate B's bordered surface, compact headline stack, accent strapline, and supporting copy form a generic product-landing hero that could belong to almost any SaaS site.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate B supplies the amber primary but no electric-cyan counterweight anywhere in the hero, leaving the prescribed two-accent tension incomplete.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-accent",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "Candidate A uses this slot for a location/status kicker rather than a clear one-line position, so the required statement of what Kennedy does is deferred into a long paragraph.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-sm:first-child",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Candidate A's dominant name is off-white while its only vivid accent is cyan; the molten amber primary is reduced to muted prose rather than functioning as the primary color signal.",
+          "selector": "section[data-span-id=\"hero-v0\"] > h1",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate A promotes a long, multi-line explanatory paragraph to type-lg, competing with the display name and making the hierarchy less disciplined than the editorial reference.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate A's first supporting paragraph is visually oversized and spans five lines, making the opening heavier than the restrained one-idea-per-screen target.",
+          "selector": "section[data-span-id=\"hero-v0\"] > p.type-lg",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "Candidate B's prose is abstract and awkwardly phrased, weakening the plain-spoken text-face contrast that should support the editorial display setting.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p.text-muted",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "Candidate B concentrates all content inside a shallow inset panel while leaving the rest of the viewport inert, producing component padding rather than page-like editorial rhythm.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The filled surface and border create exactly the card-like framing named as the anti-reference; the person is presented as a boxed product component instead of a well-set editorial page.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The abstract automation thesis and closing line \"That is what this is\" read like product-positioning copy; they reveal little concrete or personal about Kennedy and could sit on a generic AI tooling landing page.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(2)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "The required one-line position wraps across two lines, and its aphoristic wording is a tagline rather than a clear statement of what Kennedy does.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "Electric cyan owns the largest and most forceful colored text, reversing the specified relationship in which molten amber is primary and cyan is only the counterweight.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "\"Control systems \u00b7 interfaces \u00b7 evidence over argument\" is a keyword strapline, not a grammatical one-line position, which pushes the hero toward portfolio-product taxonomy.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "major"
+        },
+        {
+          "axis": "color",
+          "gap": "The warm dark and amber primary are on-direction, but the composition contains no visible electric-cyan counterweight, leaving the palette less distinctive than the seven-role contract.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "minor"
+        },
+        {
+          "axis": "density",
+          "gap": "The inset panel compresses all content into a shallow bounded rectangle with uniform padding; it feels like a dashboard card rather than editorial rhythm distributed across the opening screen.",
+          "selector": "section[data-span-id=\"hero-v1\"]",
+          "severity": "major"
+        },
+        {
+          "axis": "hierarchy",
+          "gap": "The \"Currently\" line drops to a small, low-contrast footnote while being one of only two supporting paragraphs, making the lower end of the hierarchy feel prematurely diminished.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(3)",
+          "severity": "minor"
+        },
+        {
+          "axis": "typography",
+          "gap": "The bright amber sans-serif strapline has the familiar visual grammar of a SaaS subheading; it does not exploit the editorial display/plain-text contrast with the restraint of the reference direction.",
+          "selector": "section[data-span-id=\"hero-v1\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "Although Candidate A becomes specific and personal in its supporting copy, the lead claim is still a polished standards-oriented slogan that could headline many infrastructure or governance products.",
+          "selector": "section[data-span-id=\"hero-v2\"] > p:nth-of-type(1)",
+          "severity": "minor"
+        },
+        {
+          "axis": "direction_conformance",
+          "gap": "Uses bg-surface and border-border framing, directly violating the explicit anti-reference that a card is a component and not a person.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "distinctiveness",
+          "gap": "The card layout makes the section read like a stock SaaS product landing page rather than an editorial personal site.",
+          "selector": "section[data-span-id='hero-v1']",
+          "severity": "major"
+        },
+        {
+          "axis": "density",
+          "gap": "Including a third paragraph risks making the hero read like an about page, even if technically split between position and supporting text.",
+          "selector": "section[data-span-id='hero-v2'] p.type-sm",
+          "severity": "minor"
+        }
+      ],
+      "losses": 2,
+      "part": "hero",
+      "rank": 3,
+      "score": 0.0,
+      "variant_id": "hero.claude.1",
+      "wins": 0
+    }
+  ],
+  "rejected": [
+    {
+      "builder_family": "claude",
+      "detail": "sanitizer-accepted: disallowed-attribute: attribute 'style' on <h1> was stripped (use tokens.css, not inline style) [section > h1]\nunknown-class: class 'hero-shout' is not in the contract's allowlist [section]; no-runtime-errors: not evaluated: the sanitiser refused the fragment, so it never rendered; no-unknown-class: 1 unknown-class finding(s): a class no token justifies; no-overflow: not evaluated: the sanitiser refused the fragment, so it never rendered; no-motion-violation: not evaluated: the sanitiser refused the fragment, so it never rendered; axe-clean: not evaluated: the sanitiser refused the fragment, so it never rendered; reduced-motion-honoured: not evaluated: the sanitiser refused the fragment, so it never rendered",
+      "failed_gates": [
+        "sanitizer-accepted",
+        "no-runtime-errors",
+        "no-unknown-class",
+        "no-overflow",
+        "no-motion-violation",
+        "axe-clean",
+        "reduced-motion-honoured"
+      ],
+      "offenders": [
+        {
+          "detail": "attribute 'style' on <h1> was stripped (use tokens.css, not inline style)",
+          "gate": "sanitizer-accepted",
+          "kind": "disallowed-attribute",
+          "locator": "section > h1"
+        },
+        {
+          "detail": "class 'hero-shout' is not in the contract's allowlist",
+          "gate": "sanitizer-accepted",
+          "kind": "unknown-class",
+          "locator": "section"
+        },
+        {
+          "detail": "class 'hero-shout' is not in the contract's allowlist",
+          "gate": "no-unknown-class",
+          "locator": "section",
+          "source": "sanitizer"
+        }
+      ],
+      "part": "hero",
+      "variant_id": "hero.claude.3"
+    }
+  ],
+  "report_path": "evidence/rounds/4/frontier.html",
+  "result_path": "evidence/rounds/4/round.json",
+  "round_id": "4",
+  "turn_id": "turn-4"
+}

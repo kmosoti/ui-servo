@@ -9,7 +9,7 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
     // A hero that exists but cannot prove it was gated fails the page rather
     // than quietly rendering the placeholder: "nobody has picked yet" and
     // "someone edited the pick" must not look the same to a visitor.
-    let hero = fragments::promoted::render_or_placeholder(state.assets_dir(), "hero")
+    let hero = fragments::promoted::render_or_placeholder(|part| state.promoted(part), "hero")
         .map_err(|error| crate::error::RouteError::UngatedPromotion(error.to_string()))?;
     Ok(shell(
         state,

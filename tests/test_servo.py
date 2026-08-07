@@ -509,7 +509,7 @@ def test_cli_smoke_with_dry_judges(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "ui_servo.control.servo",
+            "ui_servo.cli.servo",
             "--candidates",
             str(CANDIDATES),
             "--part",

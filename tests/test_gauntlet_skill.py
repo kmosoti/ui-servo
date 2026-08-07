@@ -36,7 +36,7 @@ AGENT_PATHS = {
 ALL_PATHS = {"gauntlet": SKILL_PATH, **AGENT_PATHS}
 
 SERVO_INVOCATION = (
-    "uv run python -m ui_servo.control.servo \\\n"
+    "uv run python -m ui_servo.cli.servo \\\n"
     "  --candidates evidence/rounds/<round>/candidates \\\n"
     "  --part <part> \\\n"
     "  --round <round> \\\n"

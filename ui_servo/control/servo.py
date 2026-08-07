@@ -39,19 +39,13 @@ family names added as extra tokens, so a fragment that stamps its author into a
 ``data-span-id`` stops the round instead of quietly unblinding it; and the observed
 markup notes are dropped rather than sent if they carry the same leak.
 
-**Pure control, with one documented exception.** The module-level imports are the
-standard library, the domain and the ports, which is what makes :func:`run_round`
-runnable against fakes. :func:`main` is the composition root -- it is where the
-JSONL store, the nh3 sanitiser, the Playwright sensor, the preview server and the
-three CLI judges are chosen -- and a composition root has to name adapters. It
-reaches them with :func:`importlib.import_module` inside the function body rather
-than with a module-level ``import``, so the dependency rule in
-``tests/test_architecture.py`` still describes this file truthfully: nothing an
-adapter drags in is loaded by importing :mod:`ui_servo.control.servo`, and a test
-that composes its own ports never touches them.
+**Pure control.** Everything imported here is the standard library, the domain
+or the ports, which is what makes :func:`run_round` runnable against fakes and
+what keeps Playwright, nh3, FastAPI and uvicorn out of any process that merely
+wants the loop. The composition root -- where those adapters are actually chosen
+-- is :mod:`ui_servo.cli.servo`, one ring further out.
 """
 
-import importlib
 import json
 import re
 import shutil
@@ -1301,104 +1295,6 @@ def _write_result(result: RoundResult, path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run one round over a directory of fragments and print what it decided.
-
-    This is the composition root, and it is the only function in the module that
-    knows an adapter exists. The imports below are deliberately dynamic: the
-    dependency rule holds ``ui_servo.control`` to the standard library plus the
-    domain and the ports so that the loops stay runnable against fakes, and a
-    module-level ``import ui_servo.adapters...`` here would drag Playwright, nh3,
-    FastAPI and uvicorn into every process that so much as imports
-    :func:`run_round`. Resolving them by name, inside the entry point, keeps the
-    module's import graph honest and the cost where the choice is made.
-    """
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        prog="python -m ui_servo.control.servo",
-        description="Run one gauntlet round: gates, blind panel, archive, report.",
-    )
-    parser.add_argument("--candidates", type=Path, required=True, help="directory of fragments")
-    parser.add_argument("--part", required=True, help="which part of the site this round is about")
-    parser.add_argument("--round", dest="round_id", required=True, help="round id, e.g. 1")
-    parser.add_argument("--out", type=Path, required=True, help="where evidence and artefacts go")
-    parser.add_argument("--contract", type=Path, default=None, help="direction contract TOML")
-    parser.add_argument("--part-spec", type=Path, default=None, help="file holding the part brief")
-    parser.add_argument(
-        "--anti-corpus",
-        type=Path,
-        default=None,
-        help="directory of generic_*.json style samples to measure blandness against",
-    )
-    parser.add_argument(
-        "--dry-judges",
-        action="store_true",
-        help="replace the model panel with deterministic stubs (no model calls)",
-    )
-    parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=1,
-        help="threads for the gate pass; keep at 1 with the Playwright sensor",
-    )
-    args = parser.parse_args(argv)
-
-    jsonl_store = importlib.import_module("ui_servo.adapters.jsonl_store")
-    nh3_sanitizer = importlib.import_module("ui_servo.adapters.nh3_sanitizer")
-    playwright_sensor = importlib.import_module("ui_servo.adapters.playwright_sensor")
-    cli_judges = importlib.import_module("ui_servo.adapters.cli_judges")
-
-    contract_path = args.contract or _default_contract_path()
-    if contract_path is None or not contract_path.is_file():
-        parser.error(
-            "no direction contract found; set UI_SERVO_CONTRACT or pass --contract PATH"
-        )
-    contract = DirectionContract.from_toml(
-        contract_path.read_text(encoding="utf-8")  # type: ignore[union-attr]
-    )
-
-    variants = load_candidates(args.candidates, part=args.part)
-    if not variants:
-        print(f"no candidates for part {args.part!r} in {args.candidates}")
-        return 1
-
-    out_dir: Path = args.out
-    out_dir.mkdir(parents=True, exist_ok=True)
-    turn_id = f"turn-{args.round_id}"
-    store = jsonl_store.JsonlEvidenceStore(out_dir)
-    stores = Stores(
-        evidence=store, exemplar=jsonl_store.JsonlExemplarStore(out_dir / "exemplars")
-    )
-    sanitizer = nh3_sanitizer.default_sanitizer(
-        contract, tokens_css=contract.to_css_custom_properties()
-    )
-    judges = dry_panel() if args.dry_judges else cli_judges.default_panel()
-    part_spec = args.part_spec.read_text(encoding="utf-8") if args.part_spec else ""
-    anti_corpus = _load_anti_corpus(args.anti_corpus, contract)
-
-    with _previews(args.candidates, store, contract, turn_id) as base_url:
-        with playwright_sensor.PlaywrightSensor(artifacts_dir=out_dir / "artifacts") as sensor:
-            result = run_round(
-                variants,
-                contract=contract,
-                stores=stores,
-                sanitizer=sanitizer,
-                sensor=sensor,
-                judges=judges,
-                round_id=str(args.round_id),
-                out_dir=out_dir,
-                url_for=lambda variant: f"{base_url}/candidate/{variant.variant_id}",
-                part=args.part,
-                part_spec=part_spec,
-                turn_id=turn_id,
-                anti_corpus=anti_corpus,
-                max_workers=max(1, args.max_workers),
-            )
-    print(result.summary())
-    return 0
-
-
 DEFAULT_ANTI_CORPUS: Final[Path] = Path("tests/fixtures/blandness")
 """Where the stock-template style samples live.
 
@@ -1407,7 +1303,12 @@ number -- and a round that reports ``blandness n/a`` for every survivor has
 quietly demoted taste from a measurement back to an opinion."""
 
 
-def _load_anti_corpus(directory: Path | None, contract: DirectionContract) -> tuple[StyleVector, ...]:
+def load_anti_corpus(
+    directory: Path | None,
+    contract: DirectionContract,
+    *,
+    on_error: Callable[[str], None] = lambda _message: None,
+) -> tuple[StyleVector, ...]:
     """Embed every ``generic_*.json`` sample once, for this round to measure against."""
     root = directory or DEFAULT_ANTI_CORPUS
     if not root.is_dir():
@@ -1417,11 +1318,11 @@ def _load_anti_corpus(directory: Path | None, contract: DirectionContract) -> tu
         try:
             samples.append((path.stem, StyleSample.model_validate_json(path.read_text())))
         except Exception as error:  # noqa: BLE001 -- a bad fixture must not end a round
-            print(f"anti-corpus: skipping {path.name}: {error}")
+            on_error(f"anti-corpus: skipping {path.name}: {error}")
     return tuple(build_anti_corpus(samples, contract=contract).values())
 
 
-def _default_contract_path() -> Path | None:
+def default_contract_path() -> Path | None:
     """Where the contract lives, most explicit first: override, wheel, checkout."""
     import os
     from importlib.resources import as_file, files
@@ -1439,47 +1340,3 @@ def _default_contract_path() -> Path | None:
         pass
     found.append(Path(__file__).resolve().parents[2] / "direction" / "direction.toml")
     return next((path for path in found if path.is_file()), None)
-
-
-def _previews(
-    candidates_dir: Path, store: EvidenceStorePort, contract: DirectionContract, turn_id: TurnId
-) -> Any:
-    """A preview server on an ephemeral port, for the length of one round.
-
-    Served with ``dev=False``: the probe is the instrument, and a screenshot the
-    panel is going to argue about must be of the fragment rather than of the
-    instrument watching it. The probe's observations reach this round the other
-    way, out of the evidence stock.
-    """
-    import contextlib
-    import threading
-    import time
-
-    preview_server = importlib.import_module("ui_servo.adapters.preview_server")
-    uvicorn = importlib.import_module("uvicorn")
-
-    @contextlib.contextmanager
-    def serve() -> Any:
-        app = preview_server.create_app(candidates_dir, store, contract, turn_id, dev=False)
-        server = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
-        )
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-        deadline = time.monotonic() + 30.0
-        while not server.started and thread.is_alive() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        if not server.started:
-            raise RuntimeError("the preview server did not start")
-        port = server.servers[0].sockets[0].getsockname()[1]
-        try:
-            yield f"http://127.0.0.1:{port}"
-        finally:
-            server.should_exit = True
-            thread.join(timeout=10.0)
-
-    return serve()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

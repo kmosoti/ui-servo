@@ -6,7 +6,9 @@
 //! of `AppState` and cannot drift halfway through a run.
 
 use crate::error::StartupError;
+use crate::fragments::promoted::{self, Promoted, PromotionError};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,6 +29,9 @@ struct Inner {
     turn_id: String,
     color_scheme: String,
     motion: Value,
+    /// Promoted picks, verified once at boot. Empty in dev, where they are
+    /// re-read per request instead. See [`AppState::promoted`].
+    promoted: BTreeMap<String, Promoted>,
 }
 
 impl AppState {
@@ -63,6 +68,11 @@ impl AppState {
         )?;
         let motion = motion_table(&assets_dir.join(MOTION_JSON))?;
         let probe_path = locate_probe(&assets_dir);
+        let promoted = if dev {
+            BTreeMap::new()
+        } else {
+            verify_promotions(&assets_dir)?
+        };
 
         Ok(Self(Arc::new(Inner {
             assets_dir,
@@ -72,6 +82,7 @@ impl AppState {
             turn_id,
             color_scheme,
             motion,
+            promoted,
         })))
     }
 
@@ -89,6 +100,25 @@ impl AppState {
 
     pub fn assets_dir(&self) -> &Path {
         &self.0.assets_dir
+    }
+
+    /// A verified promoted pick, or `NotPromoted` if nobody has chosen one.
+    ///
+    /// The two modes differ deliberately. In release the map was built at boot
+    /// and every entry in it has already proven its provenance, so serving is a
+    /// lookup: no file read, no SHA-256 over the markup, nothing per-request
+    /// that can fail. In dev the file is read fresh each time, because the whole
+    /// point of dev is that somebody is editing the pick and wants to see the
+    /// consequence — including the 500 when they edit it by hand.
+    pub fn promoted(&self, part: &str) -> Result<Promoted, PromotionError> {
+        if self.0.dev {
+            return promoted::load(self.assets_dir(), part);
+        }
+        self.0
+            .promoted
+            .get(part)
+            .cloned()
+            .ok_or_else(|| PromotionError::NotPromoted(part.to_owned()))
     }
 
     /// `probe.js` on disk, if the sensor runtime has been built yet.
@@ -134,6 +164,51 @@ impl AppState {
         // close the one hole that matters inside an inline <script>.
         config.to_string().replace("</", "<\\/")
     }
+}
+
+/// Verify every promoted fragment on disk, or refuse to start.
+///
+/// This is the release-mode half of the provenance contract. Verifying lazily
+/// means an ungated or tampered pick is discovered by the first visitor to load
+/// the page that uses it, long after the process reported itself healthy; doing
+/// it here turns that into a failed boot, which is the event a deploy already
+/// knows how to react to. It is also what makes [`AppState::promoted`] cheap:
+/// having checked the hash once, the request path never has to.
+///
+/// A missing directory is not a failure — a repo where nothing has been promoted
+/// yet is a legitimate state, and the pages fall back to their placeholders.
+fn verify_promotions(assets_dir: &Path) -> Result<BTreeMap<String, Promoted>, StartupError> {
+    let dir = assets_dir.join(promoted::PROMOTED_DIR);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BTreeMap::new());
+        }
+        Err(source) => return Err(StartupError::Unreadable { path: dir, source }),
+    };
+
+    let mut verified = BTreeMap::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|source| StartupError::Unreadable {
+                path: dir.clone(),
+                source,
+            })?
+            .path();
+        if path.extension().is_none_or(|ext| ext != "html") {
+            continue;
+        }
+        // `load` re-derives the path from the part name, which also re-runs the
+        // slug check — a file named `..html` or with a non-slug stem is refused
+        // here rather than becoming an unreachable entry in the map.
+        let Some(part) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let promotion = promoted::load(assets_dir, part)
+            .map_err(|error| StartupError::UngatedPromotion(error.to_string()))?;
+        verified.insert(part.to_owned(), promotion);
+    }
+    Ok(verified)
 }
 
 fn read(path: &Path) -> Result<String, StartupError> {
@@ -312,6 +387,29 @@ mod tests {
         }
     }
 
+    /// The gate reads classes in fragment markup. Anything the stylesheet hangs
+    /// off `[data-fragment]` or `[data-span-id]` is therefore invisible to it —
+    /// so those selectors must not confer visual identity, or the loop judges
+    /// one appearance and the site serves another. This is the CSS-side twin of
+    /// `fragments::tests::the_frame_imposes_no_visual_chrome`.
+    #[test]
+    fn the_sensor_attributes_carry_no_visual_identity() {
+        let css = std::fs::read_to_string(asset("site.css")).expect("site.css is committed");
+        for selector in ["[data-fragment] {", "[data-span-id] {"] {
+            let block = css
+                .split_once(selector)
+                .and_then(|(_, rest)| rest.split_once('}'))
+                .map(|(block, _)| block)
+                .unwrap_or_else(|| panic!("site.css no longer declares {selector}"));
+            for property in ["background", "border", "box-shadow", "outline"] {
+                assert!(
+                    !block.contains(&format!("{property}:")),
+                    "{selector} sets {property}, which the class-0 gate cannot see:\n{block}"
+                );
+            }
+        }
+    }
+
     /// tokens.css converts px to rem against `rem_base_px = 16`. Restating
     /// `font-size` on the root element rescales every rem token at once — an
     /// off-contract site that every gate still reads as on-contract.
@@ -332,6 +430,67 @@ mod tests {
         assert!(
             tokens.contains("--space-base: 0.5rem;"),
             "the spacing base is no longer 0.5rem (8px at the 16px conversion base)"
+        );
+    }
+
+    /// A release server must not come up carrying a fragment that cannot prove
+    /// it was gated. If it does, the deploy reports success and the breakage
+    /// waits for a visitor.
+    #[test]
+    fn a_tampered_promotion_stops_the_server_from_starting() {
+        let dir = std::env::temp_dir().join(format!("ui-servo-boot-{}", crate::span::new_span_id()));
+        std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
+        for name in [TOKENS_CSS, MOTION_JSON] {
+            std::fs::copy(asset(name), dir.join(name)).unwrap();
+        }
+        std::fs::write(
+            dir.join(promoted::PROMOTED_DIR).join("hero.html"),
+            "<!-- ui-servo: gated round=1 sha256=deadbeef -->\n<section class=\"my-lg\">x</section>\n",
+        )
+        .unwrap();
+
+        let release = AppState::load(dir.clone(), false, "b".into(), "t".into());
+        // Dev is deliberately permissive: the pick is under active edit, and the
+        // per-request 500 is the feedback the author wants.
+        let dev = AppState::load(dir.clone(), true, "b".into(), "t".into());
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            matches!(release, Err(StartupError::UngatedPromotion(_))),
+            "release mode booted with an ungated hero: {release:?}"
+        );
+        assert!(dev.is_ok(), "dev mode should still start: {dev:?}");
+    }
+
+    /// The committed pick has to survive its own server's boot check, or the
+    /// site in this repo is one `cargo run --release` away from not starting.
+    #[test]
+    fn the_committed_promotions_all_verify_at_boot() {
+        let verified = verify_promotions(&asset("").parent().unwrap().join("assets"))
+            .expect("the committed promotions verify");
+        assert!(
+            verified.contains_key("hero"),
+            "no hero is promoted; the demo round's pick is not committed"
+        );
+    }
+
+    /// In release the markup is served straight out of the boot-time map, so a
+    /// file that changes underneath a running process must not change what it
+    /// serves — that would be an ungated edit taking effect without a restart.
+    #[test]
+    fn release_mode_serves_the_verified_copy_not_the_file() {
+        let state = AppState::load(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
+            false,
+            "b".into(),
+            "t".into(),
+        )
+        .expect("the committed assets are valid");
+        let first = state.promoted("hero").expect("hero is promoted");
+        assert_eq!(first, state.promoted("hero").unwrap());
+        assert!(
+            !first.markup.contains("data-span-id"),
+            "the promoted body kept a candidate span id; live evidence would file under it"
         );
     }
 

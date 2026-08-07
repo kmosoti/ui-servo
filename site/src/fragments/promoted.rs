@@ -143,26 +143,43 @@ pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
     })
 }
 
-/// Render a promoted fragment inside the standard frame, so a pick is measurable
-/// on exactly the same terms as a hand-written fragment.
-pub fn render(assets_dir: &Path, part: &str) -> Result<Markup, PromotionError> {
-    let promoted = load(assets_dir, part)?;
-    Ok(super::frame(
+/// Frame a promotion that has already proven itself, so a pick is measurable on
+/// exactly the same terms as a hand-written fragment.
+///
+/// Takes a [`Promoted`] rather than a path because that type cannot be
+/// constructed without passing [`load`] — the verification is in the type, and
+/// this function has no way to render something unverified even by mistake.
+pub fn render_verified(promoted: &Promoted) -> Markup {
+    super::frame(
         &format!("promoted-{}", promoted.part),
         &format!("Promoted {} (round {})", promoted.part, promoted.round),
-        // Verified above: gated by the class-0 sanitiser at promotion and
-        // unchanged since. That is the whole reason the provenance check exists.
+        // Gated by the class-0 sanitiser at promotion and unchanged since; that
+        // is the whole reason the provenance check exists.
         html! { (PreEscaped(promoted.markup.clone())) },
-    ))
+    )
+}
+
+/// Load and frame in one step. Used by the dev path and the tests; the release
+/// path goes through `AppState::promoted`, which verified at boot.
+pub fn render(assets_dir: &Path, part: &str) -> Result<Markup, PromotionError> {
+    Ok(render_verified(&load(assets_dir, part)?))
 }
 
 /// Render the promotion if there is one, else `None` so the caller can fall back
 /// to its built-in placeholder. A *broken* promotion is not `None` — it is
 /// logged and still `None`, because refusing to serve is the point, but the page
 /// should say so rather than silently pretending nothing was ever picked.
-pub fn render_or_placeholder(assets_dir: &Path, part: &str) -> Result<Option<Markup>, PromotionError> {
-    match render(assets_dir, part) {
-        Ok(markup) => Ok(Some(markup)),
+///
+/// The lookup is a parameter so the same fallback logic covers both modes: in
+/// release it is `AppState::promoted`, reading a map verified at boot; in dev
+/// and in tests it is [`load`], hitting the disk. The policy — what counts as
+/// absent versus broken — must not differ between them.
+pub fn render_or_placeholder(
+    lookup: impl FnOnce(&str) -> Result<Promoted, PromotionError>,
+    part: &str,
+) -> Result<Option<Markup>, PromotionError> {
+    match lookup(part) {
+        Ok(promoted) => Ok(Some(render_verified(&promoted))),
         // Nothing has been picked yet. The placeholder is the honest answer.
         Err(PromotionError::NotPromoted(_)) => Ok(None),
         // A file exists and cannot prove itself. Falling back here would let a
@@ -227,7 +244,7 @@ mod tests {
             load(&root, "hero").unwrap_err(),
             PromotionError::NotPromoted("hero".into())
         );
-        assert!(render_or_placeholder(&root, "hero").unwrap().is_none());
+        assert!(render_or_placeholder(|part| load(&root, part), "hero").unwrap().is_none());
     }
 
     #[test]
@@ -247,7 +264,7 @@ mod tests {
         // "someone edited the pick" is an error the page must not paper over.
         let root = temp();
         write(&root, "hero", "<p class=\"text-md\">never gated</p>");
-        assert!(render_or_placeholder(&root, "hero").is_err());
+        assert!(render_or_placeholder(|part| load(&root, part), "hero").is_err());
     }
 
     #[test]

@@ -14,10 +14,14 @@ the interface layer, which is the same failure by a slower route.
     ui_servo.control   stdlib only; ui_servo.domain, ui_servo.ports, ui_servo.control
     ui_servo.adapters  any distribution -- the world is allowed in here -- but only
                        ui_servo.domain, ui_servo.ports, ui_servo.adapters internally
+    ui_servo.cli       anything: the composition roots, and the only layer that may
+                       name a concrete adapter
 
-Nothing imports ``control`` and nothing imports ``adapters``: every arrow points
-inward, and there is no edge between those two layers in either direction. An
-adapter that reaches for a loop has inverted the hexagon.
+Inside the hexagon every arrow points inward: nothing imports ``control``,
+nothing imports ``adapters``, and there is no edge between those two layers in
+either direction. An adapter that reaches for a loop has inverted the hexagon.
+``cli`` sits outside all of it and is imported by nothing, which is what makes it
+safe for it to import everything.
 
 ``control`` is held to stdlib-only on purpose: the loops must be runnable against
 fakes, so anything that needs a wire, a browser or a vendor SDK belongs behind a
@@ -71,6 +75,15 @@ LAYER_RULES: dict[str, LayerRule] = {
         internal=frozenset({"ui_servo.domain", "ui_servo.ports", "ui_servo.adapters"}),
         third_party=None,
     ),
+    # The composition roots. This layer exists precisely to hold the imports no
+    # other layer may make, so it is unconstrained in both directions -- and
+    # nothing may import *it*, which is what keeps it outermost.
+    "ui_servo.cli": LayerRule(
+        internal=frozenset(
+            {"ui_servo.domain", "ui_servo.ports", "ui_servo.control", "ui_servo.adapters", "ui_servo.cli"}
+        ),
+        third_party=None,
+    ),
 }
 
 
@@ -101,6 +114,15 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
     ``from x import y`` yields both ``x`` and ``x.y``: whether ``y`` is a
     submodule or an attribute is unknowable without importing, and a layering
     check must not be the thing that decides to execute application code.
+
+    ``importlib.import_module("x.y")`` counts too, and that is not pedantry. An
+    earlier version of this repo had ``ui_servo.control.servo`` reach its
+    adapters that way, with a docstring explaining that it kept the import graph
+    honest. It did the opposite: the dependency was real, this guard read only
+    ``import`` statements, and the rule passed while being broken. A layering
+    check that any developer can step around by spelling the import differently
+    is decoration. Only literal arguments are resolvable -- a computed module
+    name is caught by :func:`test_no_module_name_is_computed` instead.
     """
     package = module if is_package else module.rpartition(".")[0]
     found: set[str] = set()
@@ -120,7 +142,32 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
                     continue
                 found.add(base)
                 found.update(f"{base}.{alias.name}" for alias in names)
+            case ast.Call(func=func, args=[ast.Constant(value=str(target)), *_]):
+                if _is_import_module(func):
+                    found.add(target)
     return frozenset(found)
+
+
+def _is_import_module(func: ast.expr) -> bool:
+    """``import_module(...)`` or ``importlib.import_module(...)``, either spelling."""
+    match func:
+        case ast.Name(id="import_module"):
+            return True
+        case ast.Attribute(attr="import_module"):
+            return True
+        case _:
+            return False
+
+
+def dynamic_import_targets(source: str) -> tuple[ast.Call, ...]:
+    """``import_module`` calls whose argument this guard cannot read."""
+    return tuple(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and _is_import_module(node.func)
+        and not (node.args and isinstance(node.args[0], ast.Constant))
+    )
 
 
 def violations(module: str, imports: frozenset[str]) -> tuple[str, ...]:
@@ -172,6 +219,23 @@ def test_package_is_actually_scanned() -> None:
 
 
 @pytest.mark.parametrize(("module", "path"), _cases(), ids=lambda value: str(value))
+def test_no_module_name_is_computed(module: str, path: Path) -> None:
+    """A module name this guard cannot read is a hole in it.
+
+    Literal ``import_module("ui_servo.adapters.x")`` is resolved and checked like
+    any other import. ``import_module(name)`` cannot be, so it is refused
+    outright rather than silently skipped -- the failure mode this whole file
+    exists to prevent is a dependency that is real and invisible.
+    """
+    computed = dynamic_import_targets(path.read_text(encoding="utf-8"))
+    assert not computed, (
+        f"{module} computes a module name at line(s) "
+        f"{sorted({node.lineno for node in computed})}; the layer guard cannot see through it. "
+        "Import it normally, or move the composition into ui_servo.cli."
+    )
+
+
+@pytest.mark.parametrize(("module", "path"), _cases(), ids=lambda value: str(value))
 def test_layer_dependency_rule(module: str, path: Path) -> None:
     imports = imported_modules(
         path.read_text(encoding="utf-8"), module, is_package=path.name == "__init__.py"
@@ -191,6 +255,46 @@ class TestTheGuardItself:
         )
         assert "ui_servo.adapters.playwright_browser" in imports
         assert violations("ui_servo.domain.contract", imports)
+
+    def test_detects_the_importlib_dodge_that_used_to_pass(self) -> None:
+        """The exact code this guard once let through, in both spellings.
+
+        ``ui_servo.control.servo`` reached its adapters this way and the suite
+        stayed green. That is the regression: not a wrong rule, an unenforced one.
+        """
+        for source in (
+            'import importlib\n\ndef main():\n'
+            '    importlib.import_module("ui_servo.adapters.nh3_sanitizer")\n',
+            'from importlib import import_module\n\ndef main():\n'
+            '    import_module("ui_servo.adapters.nh3_sanitizer")\n',
+        ):
+            imports = self._imports(source, "ui_servo.control.servo")
+            assert "ui_servo.adapters.nh3_sanitizer" in imports, source
+            assert violations("ui_servo.control.servo", imports), source
+
+    def test_the_same_dodge_is_allowed_in_the_composition_root(self) -> None:
+        """`cli` may name adapters however it likes; that is what it is for."""
+        imports = self._imports(
+            'import importlib\nimportlib.import_module("ui_servo.adapters.nh3_sanitizer")\n',
+            "ui_servo.cli.servo",
+        )
+        assert not violations("ui_servo.cli.servo", imports)
+
+    def test_a_computed_module_name_is_refused_rather_than_skipped(self) -> None:
+        computed = dynamic_import_targets(
+            'import importlib\n'
+            'def load(name):\n'
+            '    return importlib.import_module("ui_servo.adapters." + name)\n'
+        )
+        assert len(computed) == 1
+        # A literal one is readable, so it is checked rather than refused.
+        assert not dynamic_import_targets('import_module("ui_servo.adapters.x")\n')
+
+    def test_no_layer_may_import_the_composition_root(self) -> None:
+        """`cli` is outermost: importing it would drag every adapter inward."""
+        for layer in ("ui_servo.domain", "ui_servo.ports", "ui_servo.control", "ui_servo.adapters"):
+            imports = self._imports("from ui_servo.cli import servo\n", f"{layer}.thing")
+            assert violations(f"{layer}.thing", imports), layer
 
     def test_detects_from_import_of_sibling_package(self) -> None:
         imports = self._imports("from ui_servo import control\n", "ui_servo.domain.contract")

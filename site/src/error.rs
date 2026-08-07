@@ -47,7 +47,7 @@ pub enum StartupError {
     /// be mid-flight, and there the per-request 500 is the right feedback.
     #[error(
         "promoted fragment refused at startup: {0}. Re-promote it through the gauntlet \
-         (uv run python -m ui_servo.control.promote) rather than editing the file."
+         (uv run python -m ui_servo.cli.promote) rather than editing the file."
     )]
     UngatedPromotion(String),
 

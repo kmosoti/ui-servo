@@ -17,7 +17,7 @@ you should not go looking for either.
 ## What you review
 
 **The assembled page** — the route as actually served with every part's picked fragment
-promoted into `site/assets/fragments/<part>.html` — against `direction/direction.toml` and
+promoted into `site/promoted/<part>.html` — against `direction/direction.toml` and
 `exemplars/`.
 
 Not the untouched skeleton. If the promoted fragments are not in place, you are looking at

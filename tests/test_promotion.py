@@ -6,6 +6,7 @@ this module writes has to be the digest the server recomputes, or a promotion
 that is perfectly valid fails to serve.
 """
 
+import re
 from hashlib import sha256
 from pathlib import Path
 
@@ -22,6 +23,9 @@ from ui_servo.domain.contract import DirectionContract
 from ui_servo.ports.sanitizer import SanitizeResult, SanitizerPort, Violation, ViolationKind
 
 CONTRACT = Path(__file__).resolve().parents[1] / "direction" / "direction.toml"
+_SPAN_ID = re.compile(r"data-span-id\s*=", re.IGNORECASE)
+"""What must be gone from a promoted file, and present nowhere it was not."""
+
 GOOD = '<section data-span-id="hero-v2" class="my-3xl"><h1 class="type-display">Hi</h1></section>'
 
 
@@ -119,23 +123,42 @@ class TestPromotion:
         assert strip_span_ids(kept) == kept
 
     @pytest.mark.parametrize(
-        "prose",
+        "markup",
         [
+            # A `>` inside a quoted value must not be read as the end of the tag,
+            # or the span id after it is never seen.
+            '<section title="a > b" data-span-id="hero-v0">x</section>',
+            "<section title='a > b' data-span-id='hero-v0'>x</section>",
+            '<img src="a.png" data-span-id=hero-v0 />',
+            '<section  DATA-SPAN-ID = "hero-v0"  class="my-3xl">x</section>',
+        ],
+    )
+    def test_the_id_is_found_however_the_tag_is_written(self, markup: str) -> None:
+        assert not _SPAN_ID.search(strip_span_ids(markup)), markup
+
+    @pytest.mark.parametrize(
+        "untouched",
+        [
+            # Body text, in every disguise.
             '<p>the attribute data-span-id="hero" is the join key</p>',
             '<pre>&lt;section data-span-id="x"&gt;</pre>',
             "<p>Set <code>data-span-id='a'</code> on the root.</p>",
             '<!-- a note about data-span-id="x" -->',
+            # Another attribute's *value*. Stripping here would edit markup a
+            # critic already approved, then hash the corruption as if judged.
+            '<p title="a data-span-id=&quot;fake&quot; b">t</p>',
+            "<section data-tip='use data-span-id=x' class='my-lg'>y</section>",
+            # A different attribute that merely starts the same way.
+            '<section id="hero" data-span-idea="x">y</section>',
         ],
     )
-    def test_prose_that_mentions_the_attribute_is_not_rewritten(self, prose: str) -> None:
-        """A fragment documenting the probe is a fragment, not a mistake.
+    def test_nothing_else_is_rewritten(self, untouched: str) -> None:
+        """Promotion runs *after* the gate, so anything it edits is unjudged.
 
-        The strip runs over start tags only. Applied to the whole document it
-        would quietly edit body text — and quietly is the problem: the result
-        still sanitises, still hashes and still serves, so nothing downstream
-        would ever report the corruption.
+        Both failure directions are silent: the result still sanitises, still
+        hashes and still serves, so nothing downstream would ever report it.
         """
-        assert strip_span_ids(prose) == prose
+        assert strip_span_ids(untouched) == untouched
 
     def test_promoting_twice_replaces_rather_than_appends(self, tmp_path: Path) -> None:
         promote(GOOD, part="hero", round_id="1", sanitizer=_Accepting(), fragments_dir=tmp_path)
@@ -146,6 +169,7 @@ class TestPromotion:
         written = promotion.path.read_text()
         assert "second" in written and "Hi" not in written
         assert written.count("<!-- ui-servo: gated") == 1
+
 
 
 class TestServerInterop:
@@ -164,7 +188,7 @@ class TestServerInterop:
 
     def test_the_live_promoted_hero_still_verifies(self) -> None:
         """The committed pick is not stale relative to its own provenance."""
-        promoted = Path(__file__).resolve().parents[1] / "site/assets/fragments/hero.html"
+        promoted = Path(__file__).resolve().parents[1] / "site/promoted/hero.html"
         if not promoted.is_file():
             pytest.skip("no hero has been promoted yet")
         raw = promoted.read_text()

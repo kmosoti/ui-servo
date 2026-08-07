@@ -23,6 +23,9 @@ pub struct AppState(Arc<Inner>);
 #[derive(Debug)]
 struct Inner {
     assets_dir: PathBuf,
+    /// The parent of `promoted/`. Deliberately *not* `assets_dir`: see
+    /// [`promoted::PROMOTED_DIR`].
+    promoted_root: PathBuf,
     probe_path: Option<PathBuf>,
     dev: bool,
     beacon_url: String,
@@ -41,19 +44,24 @@ impl AppState {
             Some(dir) => PathBuf::from(dir),
             None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"),
         };
+        let promoted_root = match std::env::var_os("UI_SERVO_PROMOTED_ROOT") {
+            Some(dir) => PathBuf::from(dir),
+            None => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        };
         let dev = std::env::var("UI_SERVO_DEV").is_ok_and(|value| value == "1");
         let beacon_url = std::env::var("UI_SERVO_BEACON")
             .unwrap_or_else(|_| "http://localhost:8700/beacon".to_owned());
         let turn_id =
             std::env::var("UI_SERVO_TURN_ID").unwrap_or_else(|_| crate::span::new_span_id());
 
-        Self::load(assets_dir, dev, beacon_url, turn_id)
+        Self::load(assets_dir, promoted_root, dev, beacon_url, turn_id)
     }
 
     /// The environment-free half of [`AppState::from_env`], so that tests can
     /// build a dev-mode state without mutating process environment.
     fn load(
         assets_dir: PathBuf,
+        promoted_root: PathBuf,
         dev: bool,
         beacon_url: String,
         turn_id: String,
@@ -71,11 +79,12 @@ impl AppState {
         let promoted = if dev {
             BTreeMap::new()
         } else {
-            verify_promotions(&assets_dir)?
+            verify_promotions(&promoted_root)?
         };
 
         Ok(Self(Arc::new(Inner {
             assets_dir,
+            promoted_root,
             probe_path,
             dev,
             beacon_url,
@@ -91,6 +100,7 @@ impl AppState {
     pub fn for_tests(dev: bool) -> Self {
         Self::load(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             dev,
             "http://localhost:8700/beacon".to_owned(),
             "turn-test".to_owned(),
@@ -100,6 +110,11 @@ impl AppState {
 
     pub fn assets_dir(&self) -> &Path {
         &self.0.assets_dir
+    }
+
+    /// Where promoted picks live. Not under [`AppState::assets_dir`], on purpose.
+    pub fn promoted_root(&self) -> &Path {
+        &self.0.promoted_root
     }
 
     /// A verified promoted pick, or `NotPromoted` if nobody has chosen one.
@@ -112,7 +127,7 @@ impl AppState {
     /// consequence — including the 500 when they edit it by hand.
     pub fn promoted(&self, part: &str) -> Result<Promoted, PromotionError> {
         if self.0.dev {
-            return promoted::load(self.assets_dir(), part);
+            return promoted::load(self.promoted_root(), part);
         }
         self.0
             .promoted
@@ -177,8 +192,8 @@ impl AppState {
 ///
 /// A missing directory is not a failure — a repo where nothing has been promoted
 /// yet is a legitimate state, and the pages fall back to their placeholders.
-fn verify_promotions(assets_dir: &Path) -> Result<BTreeMap<String, Promoted>, StartupError> {
-    let dir = assets_dir.join(promoted::PROMOTED_DIR);
+fn verify_promotions(root: &Path) -> Result<BTreeMap<String, Promoted>, StartupError> {
+    let dir = root.join(promoted::PROMOTED_DIR);
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -204,7 +219,7 @@ fn verify_promotions(assets_dir: &Path) -> Result<BTreeMap<String, Promoted>, St
         let Some(part) = path.file_stem().and_then(|stem| stem.to_str()) else {
             continue;
         };
-        let promotion = promoted::load(assets_dir, part)
+        let promotion = promoted::load(root, part)
             .map_err(|error| StartupError::UngatedPromotion(error.to_string()))?;
         verified.insert(part.to_owned(), promotion);
     }
@@ -395,19 +410,59 @@ mod tests {
     #[test]
     fn the_sensor_attributes_carry_no_visual_identity() {
         let css = std::fs::read_to_string(asset("site.css")).expect("site.css is committed");
-        for selector in ["[data-fragment] {", "[data-span-id] {"] {
-            let block = css
-                .split_once(selector)
-                .and_then(|(_, rest)| rest.split_once('}'))
-                .map(|(block, _)| block)
-                .unwrap_or_else(|| panic!("site.css no longer declares {selector}"));
-            for property in ["background", "border", "box-shadow", "outline"] {
+        // Every rule whose selector mentions a sensor attribute, not just the
+        // two bare ones: `[data-fragment] > *`, `section[data-span-id]:hover` and
+        // friends are the same hole with a longer selector.
+        let mut checked = 0;
+        for rule in css.split('}') {
+            let Some((selector, block)) = rule.split_once('{') else {
+                continue;
+            };
+            if !selector.contains("[data-fragment") && !selector.contains("[data-span-id") {
+                continue;
+            }
+            checked += 1;
+            // An allowlist, not a denylist: naming the forbidden properties means
+            // the next one nobody thought of (`filter`, `backdrop-filter`,
+            // `mask`…) walks straight in. Layout and behaviour are the only
+            // things a sensor attribute may carry.
+            for declaration in block.split(';') {
+                let Some((property, _)) = declaration.split_once(':') else {
+                    continue;
+                };
+                let property = property.trim();
+                if property.is_empty() || property.starts_with("--") {
+                    continue;
+                }
                 assert!(
-                    !block.contains(&format!("{property}:")),
-                    "{selector} sets {property}, which the class-0 gate cannot see:\n{block}"
+                    matches!(
+                        property,
+                        "animation"
+                            | "animation-name"
+                            | "animation-duration"
+                            | "animation-timing-function"
+                            | "animation-fill-mode"
+                            | "max-width"
+                            | "min-width"
+                            | "width"
+                            | "display"
+                            | "margin-block-end"
+                            | "contain"
+                            | "content-visibility"
+                    ),
+                    "{selector} sets {property:?}. The class-0 gate reads classes in fragment \
+                     markup, so anything hung off a sensor attribute is invisible to it — the \
+                     loop would judge one appearance and the site would serve another. If this \
+                     property is genuinely layout or behaviour, add it to the allowlist here, \
+                     in a diff, once."
                 );
             }
         }
+        assert!(
+            checked >= 2,
+            "no rules matched the sensor attributes; the selectors were renamed and this \
+             guard silently stopped guarding"
+        );
     }
 
     /// tokens.css converts px to rem against `rem_base_px = 16`. Restating
@@ -440,8 +495,9 @@ mod tests {
     fn a_tampered_promotion_stops_the_server_from_starting() {
         let dir = std::env::temp_dir().join(format!("ui-servo-boot-{}", crate::span::new_span_id()));
         std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
         for name in [TOKENS_CSS, MOTION_JSON] {
-            std::fs::copy(asset(name), dir.join(name)).unwrap();
+            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
         }
         std::fs::write(
             dir.join(promoted::PROMOTED_DIR).join("hero.html"),
@@ -449,10 +505,11 @@ mod tests {
         )
         .unwrap();
 
-        let release = AppState::load(dir.clone(), false, "b".into(), "t".into());
+        let release =
+            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
         // Dev is deliberately permissive: the pick is under active edit, and the
         // per-request 500 is the feedback the author wants.
-        let dev = AppState::load(dir.clone(), true, "b".into(), "t".into());
+        let dev = AppState::load(dir.join("assets"), dir.clone(), true, "b".into(), "t".into());
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(
@@ -466,7 +523,7 @@ mod tests {
     /// site in this repo is one `cargo run --release` away from not starting.
     #[test]
     fn the_committed_promotions_all_verify_at_boot() {
-        let verified = verify_promotions(&asset("").parent().unwrap().join("assets"))
+        let verified = verify_promotions(Path::new(env!("CARGO_MANIFEST_DIR")))
             .expect("the committed promotions verify");
         assert!(
             verified.contains_key("hero"),
@@ -481,6 +538,7 @@ mod tests {
     fn release_mode_serves_the_verified_copy_not_the_file() {
         let state = AppState::load(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             false,
             "b".into(),
             "t".into(),
@@ -489,7 +547,7 @@ mod tests {
         let first = state.promoted("hero").expect("hero is promoted");
         assert_eq!(first, state.promoted("hero").unwrap());
         assert!(
-            !first.markup.contains("data-span-id"),
+            !first.markup().contains("data-span-id"),
             "the promoted body kept a candidate span id; live evidence would file under it"
         );
     }

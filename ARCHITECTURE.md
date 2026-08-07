@@ -208,7 +208,7 @@ ui-servo/
 ├── probe/probe.js                in-browser sensor runtime
 ├── site/                         axum + htmx + WASM islands — the plant
 │   ├── src/fragments/            the gauntlet's unit of work
-│   ├── assets/fragments/         promoted picks, provenance-verified
+│   ├── promoted/                promoted picks, outside the static root
 │   └── islands/                  wasm-bindgen crate
 ├── demo/                         round 4, end to end, with its evidence
 ├── tools/

@@ -54,10 +54,26 @@ and left the round carrying the gate that stopped it — a work item a builder c
 act on for zero model tokens. That is the loop's central economy, and it is
 visible in `round-4/`: no judge signal references its span.
 
-**#1 and #2 tied on points.** The ordering between them is a tiebreak, not a
-verdict. The panel separated the card from the two editorial openings; it did not
-claim to separate those two from each other, and this report does not pretend
-otherwise.
+**#1 and #2 tied on points, and their head-to-head is the comparison that
+escalated.** This is worth being precise about, because it decides who chose the
+hero. From `round.json`:
+
+| Comparison | A | B | Outcome |
+|---|---|---|---|
+| `cmp-d130df28c71c` | `hero.claude.0` | `hero.claude.1` | 2–0 for A |
+| `cmp-26c1252c854d` | `hero.claude.1` | `hero.claude.2` | 0–2 for B |
+| `cmp-01005a64816f` | `hero.claude.0` | `hero.claude.2` | **escalated** — one family eligible |
+
+So the panel decided one thing and declined to decide another. It eliminated the
+card, twice, unanimously, on a named anti-reference. It never separated the two
+editorial openings — that comparison had a single eligible critic (§6) and the
+protocol refuses a verdict on one vote.
+
+The promoted hero is therefore **a human pick between two co-leaders**, not a
+panel choice, and the escalation is exactly the mechanism that put the decision
+there. That is the design working: the loop is meant to hand a human the calls it
+cannot make on the evidence it has, rather than manufacture a ranking to look
+decisive.
 
 ## 3. What the critics said
 
@@ -105,7 +121,7 @@ exposed a place where the instrument and the artefact had drifted apart".
 ```bash
 uv run python -m ui_servo.cli.promote --pick demo/candidates/hero.claude.0.html \
   --part hero --round 4
-# promoted hero from round 4 -> site/assets/fragments/hero.html
+# promoted hero from round 4 -> site/promoted/hero.html
 #   sha256 80ae20494ba67aa96a7bba3640639481034b22e89c1903ba741943ea8aae9900
 ```
 
@@ -159,7 +175,12 @@ one.
 
 ![The home page after promotion](site-home.png)
 
-The hero at the top of that page is `hero.claude.0` — chosen by the panel, gated
-at promotion, and served with its provenance verified at boot. Below it, an htmx
-fragment swap and a Rust→WASM island, both instrumented by the same probe that
-measured the candidates.
+The hero at the top of that page is `hero.claude.0`: a human pick from the two
+candidates the panel left standing (§2), gated at promotion, and served with its
+provenance verified at boot. Below it, an htmx fragment swap and a Rust→WASM
+island, both instrumented by the same probe that measured the candidates.
+
+An earlier version of this line said the hero was "chosen by the panel". It was
+not, and the distinction is the whole governance claim of the method: the panel
+removed a candidate on evidence, and a person chose between the ones it could not
+separate.

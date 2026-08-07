@@ -253,7 +253,7 @@ A pick does two things, and only the owner can trigger either:
 2. **It is promoted into the site.** Copy the picked candidate's HTML to:
 
    ```
-   site/assets/fragments/<part>.html
+   site/promoted/<part>.html
    ```
 
    One file per part, named by part id only — the family and variant tokens are build-time
@@ -271,7 +271,7 @@ A pick does two things, and only the owner can trigger either:
    release, a 500 plus a logged violation in dev. The class-0 sanitizer itself runs in
    Python at promotion time, not in Rust, so this comment is the site's only evidence that
    the fragment it is about to serve ever passed a gate. A file dropped into
-   `site/assets/fragments/` by hand has no provenance and will be refused, which is the
+   `site/promoted/` by hand has no provenance and will be refused, which is the
    intended behaviour.
 
    U14 owns the serving side: `fragments::promoted::render(part)` reads the file, wraps it
@@ -281,7 +281,7 @@ A pick does two things, and only the owner can trigger either:
    changes the real site. An unknown or missing part is a 404.
 
 Promotion is what makes the next step possible: until the picks are in
-`site/assets/fragments/`, there is no assembled page, only a pile of candidates.
+`site/promoted/`, there is no assembled page, only a pile of candidates.
 
 ## 8. Integration — review the assembly, not the skeleton
 
@@ -304,7 +304,7 @@ finding:
    still a fragment change and can still break a gate,
 4. promote the survivor and re-integrate.
 
-A fix that goes straight into `site/assets/fragments/` because "it is only spacing" is how
+A fix that goes straight into `site/promoted/` because "it is only spacing" is how
 an ungated regression enters the plant.
 
 ## 9. Termination

@@ -170,3 +170,87 @@ Recorded because both had been reported to the operator as findings:
 
 `demo/README.md` §7 carries both retractions, so the repo's own demo says what
 the earlier rounds got wrong rather than only showing the run that worked.
+
+---
+
+## U17 — the review that found seven criticals
+
+The U16 review came back with 7 criticals and 4 minors. All were reproduced
+before being fixed; one was reported against the wrong variant name and is
+recorded here with the correction, because the substance held either way.
+
+### The one that mattered: the static root still served promoted files raw
+
+U15 closed a `ServeDir` bypass by adding deny routes on `/assets/fragments` and
+`/assets/fragments/{*rest}`. That fix did not hold, and the reviewer said so.
+Axum matches the **raw** path; `ServeDir` **percent-decodes**. So:
+
+```
+/assets/fragments/hero.html      -> 500   (deny route hit)
+/assets/%66ragments/hero.html    -> 200   raw file, provenance never checked
+/assets/fragments%2Fhero.html    -> 200   raw file, provenance never checked
+```
+
+Confirmed against the running release binary before changing anything. The
+promoted body — the one artefact in the system whose entire purpose is to be
+unservable without a hash check — was downloadable in full, comment and all.
+
+The fix is structural rather than another pattern in the denylist: promoted picks
+moved from `site/assets/fragments/` to `site/promoted/`, outside the static root
+entirely. A file that must never be served statically does not belong in the
+directory that serves files statically, and defending one with route matching is
+a denylist over an encoding the caller controls. `tests/test_promotion_e2e.py`
+now fires nine encodings and traversals at the old and new locations.
+
+### The rest
+
+1. **`/fragments/promoted/{part}` still read from disk per request**, so the
+   release cache had two sources of truth: the home page served the boot
+   snapshot while the direct route observed later disk changes. Now both go
+   through `AppState::promoted`.
+2. **`strip_span_ids` was not quote-aware** — my own fix from the previous
+   commit. `<section title="a > b" data-span-id="x">` kept its stale id (the tag
+   "ended" at the quoted `>`), and `<p title="a data-span-id=&quot;x&quot; b">`
+   had its *value* rewritten. The second is the worse half: promotion runs after
+   the gate, so it silently edited approved markup and hashed the corruption as
+   though it had been judged. Replaced with an attribute scanner that consumes
+   values whole; 7 new cases pin both directions.
+3. **The Rust provenance parser truncated at `-`**, so `round=round-4` parsed as
+   `round` while the Python writer's grammar permits hyphens. The two sides
+   disagreed about what a round id is. Also, the hash covers the body but not the
+   comment, so metadata could be edited freely — the provenance line is now
+   pinned to its exact canonical form (`ForgedProvenance`).
+4. **The architecture guard was still bypassable**: `from importlib import
+   import_module as load` defeated the name check, and
+   `import_module(".cli.servo", package="ui_servo")` was recorded as an external
+   `.cli.servo`. Both resolved now, both with tests.
+5. **The demo claimed evidence that was not committed.** Deduplicating
+   `.gitignore` dropped the `!demo/` negation, so `demo/round-4/evidence/` was
+   ignored while `demo/README.md` said the verdicts were committed — the exact
+   failure the demo exists to rule out. Restored and verified: the quoted
+   verdicts are in the tracked `turn-4.jsonl`.
+6. **"Chosen by the panel" was false.** The reviewer named the wrong tie partner
+   (`hero.codex.0`; it was `hero.claude.2`) but was right about the substance,
+   and this is the finding with the sharpest teeth. From `round.json`:
+   `hero.claude.0` and `hero.claude.2` each beat the card 2–0, and **their
+   head-to-head escalated** — one eligible critic, no verdict. The panel
+   eliminated the card and declined to separate the survivors. The promoted hero
+   was therefore a human pick between two co-leaders. The README said the panel
+   chose it. Corrected in §2 and §8, with the comparison table, because who chose
+   the artefact is the governance claim of the whole method.
+
+Minors, all fixed: the startup error pointed at `ui_servo.control.promote`, which
+no longer has an entry point; `Promoted`'s fields were public, making its "cannot
+be constructed unverified" invariant a comment rather than a fact; both
+visual-identity guards were denylists and are now allowlists; and the end-to-end
+suite skipped on a missing binary without noticing a *stale* one, which is worse
+than skipping because it reports green for a contract it never checked.
+
+### What this round of review says about the previous one
+
+U15 found the ServeDir bypass and I fixed it with deny routes. The fix was
+plausible, the tests I wrote for it passed, and it was wrong. What caught it was
+not a better test but a reviewer asking how the two layers disagree about the
+same path — and then me firing real encodings at a running binary instead of
+reasoning about the router. Deterministic verification beat argument, which is
+the premise the repo is built on.

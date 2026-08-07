@@ -24,9 +24,20 @@ use maud::{Markup, PreEscaped, html};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
-/// Where promoted picks live, relative to the assets dir. Tracked in git:
-/// a pick is a decision, not a cache.
-pub const PROMOTED_DIR: &str = "fragments";
+/// Where promoted picks live. Tracked in git: a pick is a decision, not a cache.
+///
+/// **Deliberately outside `assets/`.** They used to live at `assets/fragments/`
+/// and were kept unreachable by deny routes on `/assets/fragments/{*rest}`.
+/// That did not hold: axum matches the *raw* path while `ServeDir` percent-
+/// decodes, so `/assets/%66ragments/hero.html` missed the deny route, decoded
+/// back to the real file, and served the raw body — no provenance check, no
+/// hash check, no frame. Verified against the running binary before this move.
+///
+/// Route-based protection of a file inside the static root is a denylist over an
+/// attacker-controlled encoding, and the fix for a denylist is usually to stop
+/// needing one. A file that must never be served statically does not belong in
+/// the directory that serves files statically.
+pub const PROMOTED_DIR: &str = "promoted";
 
 const PROVENANCE_PREFIX: &str = "<!-- ui-servo: gated";
 
@@ -52,14 +63,40 @@ pub enum PromotionError {
          the markup on disk hashes to {2}"
     )]
     HashMismatch(String, String, String),
+    #[error(
+        "promoted fragment {0:?} has a provenance line the promoter would not have \
+         written: {1:?}. The body hash covers the markup but not the comment, so the \
+         comment is pinned to its exact canonical form instead."
+    )]
+    ForgedProvenance(String, String),
 }
 
 /// A promoted fragment that has proven where it came from.
+///
+/// The fields are private so the invariant is real rather than documented: the
+/// only way to obtain one is [`load`], which verifies provenance and hash. With
+/// public fields, any code in the crate could assemble arbitrary markup and hand
+/// it to [`render_verified`], and the type would be vouching for nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Promoted {
-    pub part: String,
-    pub round: String,
-    pub markup: String,
+    part: String,
+    round: String,
+    markup: String,
+}
+
+impl Promoted {
+    pub fn part(&self) -> &str {
+        &self.part
+    }
+
+    pub fn round(&self) -> &str {
+        &self.round
+    }
+
+    /// The verified markup. Read-only: a caller may serve it, not amend it.
+    pub fn markup(&self) -> &str {
+        &self.markup
+    }
 }
 
 /// The same grammar the writer enforces (`ui_servo/control/promote.py`): a part
@@ -75,11 +112,11 @@ fn is_slug(part: &str) -> bool {
         && part != ".."
 }
 
-fn promoted_path(assets_dir: &Path, part: &str) -> Result<PathBuf, PromotionError> {
+fn promoted_path(root: &Path, part: &str) -> Result<PathBuf, PromotionError> {
     if !is_slug(part) {
         return Err(PromotionError::NotASlug(part.to_owned()));
     }
-    Ok(assets_dir.join(PROMOTED_DIR).join(format!("{part}.html")))
+    Ok(root.join(PROMOTED_DIR).join(format!("{part}.html")))
 }
 
 /// Read the provenance comment's `round=` and `sha256=` values, if both are there.
@@ -92,13 +129,25 @@ fn parse_provenance(markup: &str) -> Option<(String, String)> {
     Some((round, sha))
 }
 
+/// One `key=value` out of the provenance comment.
+///
+/// The terminator set matters more than it looks. It used to include `-`, to
+/// stop the value swallowing the comment's closing `-->`; the cost was that
+/// `round=round-4` parsed as `round`, because the writer's grammar
+/// (`[A-Za-z0-9._-]`) permits hyphens and this reader did not. The two sides
+/// disagreed about what a round id *is*, silently, and the truncated value was
+/// then cached and reported as the fragment's origin.
+///
+/// So the value runs to whitespace or `>`, and the closing `-->` is trimmed
+/// afterwards — a hyphen is only a terminator when it is the comment's.
 fn field(line: &str, key: &str) -> Option<String> {
     let rest = &line[line.find(key)? + key.len()..];
-    let value: String = rest
-        .chars()
-        .take_while(|c| !c.is_whitespace() && *c != '-' && *c != '>')
-        .collect();
-    (!value.is_empty()).then_some(value)
+    let value: &str = rest
+        .split(|c: char| c.is_whitespace() || c == '>')
+        .next()
+        .unwrap_or("");
+    let value = value.trim_end_matches("--").trim_end_matches('-');
+    (!value.is_empty()).then(|| value.to_owned())
 }
 
 /// The body a hash covers: everything after the provenance line. The comment
@@ -118,8 +167,8 @@ pub fn sha256_of(body: &str) -> String {
 }
 
 /// Load a promoted fragment, verifying it was gated and unedited since.
-pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
-    let path = promoted_path(assets_dir, part)?;
+pub fn load(root: &Path, part: &str) -> Result<Promoted, PromotionError> {
+    let path = promoted_path(root, part)?;
     if !path.is_file() {
         return Err(PromotionError::NotPromoted(part.to_owned()));
     }
@@ -134,6 +183,21 @@ pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
             part.to_owned(),
             recorded,
             actual,
+        ));
+    }
+    // The hash covers the body, so the *metadata* is the one part of the file an
+    // editor could still rewrite unnoticed: change `round=4` to `round=99` and
+    // every check above still passes. It cannot be folded into the digest (a
+    // comment cannot hash itself), so instead the line is required to be exactly
+    // what the writer would emit for this round and this body. Anything else —
+    // an extra attribute, a reordered field, a doctored round — is a file nobody
+    // promoted.
+    let canonical = format!("<!-- ui-servo: gated round={round} sha256={recorded} -->");
+    let header = raw.lines().next().unwrap_or_default().trim();
+    if header != canonical {
+        return Err(PromotionError::ForgedProvenance(
+            part.to_owned(),
+            header.to_owned(),
         ));
     }
     Ok(Promoted {
@@ -151,18 +215,18 @@ pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
 /// this function has no way to render something unverified even by mistake.
 pub fn render_verified(promoted: &Promoted) -> Markup {
     super::frame(
-        &format!("promoted-{}", promoted.part),
-        &format!("Promoted {} (round {})", promoted.part, promoted.round),
+        &format!("promoted-{}", promoted.part()),
+        &format!("Promoted {} (round {})", promoted.part(), promoted.round()),
         // Gated by the class-0 sanitiser at promotion and unchanged since; that
         // is the whole reason the provenance check exists.
-        html! { (PreEscaped(promoted.markup.clone())) },
+        html! { (PreEscaped(promoted.markup().to_owned())) },
     )
 }
 
 /// Load and frame in one step. Used by the dev path and the tests; the release
 /// path goes through `AppState::promoted`, which verified at boot.
-pub fn render(assets_dir: &Path, part: &str) -> Result<Markup, PromotionError> {
-    Ok(render_verified(&load(assets_dir, part)?))
+pub fn render(root: &Path, part: &str) -> Result<Markup, PromotionError> {
+    Ok(render_verified(&load(root, part)?))
 }
 
 /// Render the promotion if there is one, else `None` so the caller can fall back

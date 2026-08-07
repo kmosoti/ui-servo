@@ -123,18 +123,20 @@ mod tests {
     fn the_frame_imposes_no_visual_chrome() {
         let framed = frame("t", "t", html! { "body" }).into_string();
         let root = framed.split_once('>').unwrap().0;
-        for chrome in [
-            "border-border",
-            "border-accent",
-            "bg-surface",
-            "bg-raised",
-            "p-md",
-            "p-lg",
-            "p-xl",
-        ] {
+        let classes = root
+            .split_once("class=\"")
+            .map(|(_, rest)| rest.split_once('"').unwrap().0)
+            .unwrap_or("");
+        // An allowlist. A denylist of seven class names only stops the seven
+        // somebody thought of, and the whole failure being guarded against is
+        // chrome nobody noticed arriving.
+        for class in classes.split_whitespace() {
             assert!(
-                !root.contains(chrome),
-                "the frame applies {chrome} to every fragment, including ones judged without it: {root}"
+                class.starts_with("my-"),
+                "the frame applies {class:?} to every fragment, including ones judged without \
+                 it. Only vertical rhythm (my-*) belongs here: padding, borders, backgrounds \
+                 and type are the fragment's own business, where the class-0 gate can read \
+                 them and the panel can judge them. Got: {classes:?}"
             );
         }
     }

@@ -12,5 +12,16 @@ site/target/
 
 # Working evidence is transient. The demo round is not: a reader who cannot
 # inspect the gate rejection, the blind prompts and the verdicts has to take
-# the README's word for all three, so demo/ is tracked in full.
+# the README's word for all three.
+#
+# The negation is load-bearing and was briefly lost. A bare `evidence/` matches
+# at any depth, so it also swallowed `demo/round-4/evidence/`, and the demo went
+# on claiming its verdicts were committed while they were untracked — the exact
+# failure the demo exists to rule out.
 evidence/
+!demo/**/evidence/
+!demo/**/evidence/**
+
+# Store bookkeeping, not evidence.
+.lock
+.seq

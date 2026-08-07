@@ -125,8 +125,10 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
     name is caught by :func:`test_no_module_name_is_computed` instead.
     """
     package = module if is_package else module.rpartition(".")[0]
+    tree = ast.parse(source)
+    aliases = _import_module_aliases(tree)
     found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(tree):
         match node:
             case ast.Import(names=names):
                 found.update(alias.name for alias in names)
@@ -142,30 +144,82 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
                     continue
                 found.add(base)
                 found.update(f"{base}.{alias.name}" for alias in names)
-            case ast.Call(func=func, args=[ast.Constant(value=str(target)), *_]):
-                if _is_import_module(func):
-                    found.add(target)
+            case ast.Call():
+                found.update(_dynamic_targets(node, module=module, package=package, aliases=aliases))
     return frozenset(found)
 
 
-def _is_import_module(func: ast.expr) -> bool:
-    """``import_module(...)`` or ``importlib.import_module(...)``, either spelling."""
+def _import_module_aliases(tree: ast.AST) -> frozenset[str]:
+    """Every local name bound to ``importlib.import_module``.
+
+    ``from importlib import import_module as load`` renames the function, and a
+    guard that recognises only the original spelling is a guard with a rename
+    away from being bypassed.
+    """
+    names = {"import_module"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "importlib":
+            names.update(
+                alias.asname or alias.name for alias in node.names if alias.name == "import_module"
+            )
+    return frozenset(names)
+
+
+def _is_import_module(func: ast.expr, aliases: frozenset[str]) -> bool:
+    """``import_module(...)`` under any of its local names, or ``x.import_module``."""
     match func:
-        case ast.Name(id="import_module"):
-            return True
+        case ast.Name(id=name):
+            return name in aliases
         case ast.Attribute(attr="import_module"):
             return True
         case _:
             return False
 
 
+def _dynamic_targets(
+    call: ast.Call, *, module: str, package: str, aliases: frozenset[str]
+) -> set[str]:
+    """What a literal ``import_module`` call actually resolves to.
+
+    Relative targets are resolved against the ``package=`` keyword the same way
+    the interpreter would: ``import_module(".cli.servo", package="ui_servo")``
+    reaches ``ui_servo.cli.servo``, and recording the leading-dot string verbatim
+    would file it as a harmless-looking third-party name instead.
+    """
+    if not _is_import_module(call.func, aliases):
+        return set()
+    match call.args:
+        case [ast.Constant(value=str(target)), *_]:
+            pass
+        case _:
+            return set()
+    if not target.startswith("."):
+        return {target}
+
+    anchor = next(
+        (
+            keyword.value.value
+            for keyword in call.keywords
+            if keyword.arg == "package" and isinstance(keyword.value, ast.Constant)
+        ),
+        package,
+    )
+    level = len(target) - len(target.lstrip("."))
+    parts = anchor.split(".") if anchor else []
+    trimmed = parts[: len(parts) - (level - 1)] if level > 1 else parts
+    remainder = target.lstrip(".")
+    return {".".join([*trimmed, *([remainder] if remainder else [])])}
+
+
 def dynamic_import_targets(source: str) -> tuple[ast.Call, ...]:
     """``import_module`` calls whose argument this guard cannot read."""
+    tree = ast.parse(source)
+    aliases = _import_module_aliases(tree)
     return tuple(
         node
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and _is_import_module(node.func)
+        and _is_import_module(node.func, aliases)
         and not (node.args and isinstance(node.args[0], ast.Constant))
     )
 
@@ -271,6 +325,30 @@ class TestTheGuardItself:
             imports = self._imports(source, "ui_servo.control.servo")
             assert "ui_servo.adapters.nh3_sanitizer" in imports, source
             assert violations("ui_servo.control.servo", imports), source
+
+    def test_renaming_import_module_does_not_hide_the_import(self) -> None:
+        """A guard one rename away from being bypassed is not a guard."""
+        imports = self._imports(
+            'from importlib import import_module as load\n\ndef main():\n'
+            '    load("ui_servo.adapters.nh3_sanitizer")\n',
+            "ui_servo.control.servo",
+        )
+        assert "ui_servo.adapters.nh3_sanitizer" in imports
+        assert violations("ui_servo.control.servo", imports)
+
+    def test_a_relative_dynamic_import_is_resolved_not_taken_literally(self) -> None:
+        """``.cli.servo`` is `ui_servo.cli.servo`, not a third-party package.
+
+        Recorded verbatim, the leading dot makes it look like an unknown external
+        name, and an inner layer could pull in the composition root — and every
+        adapter behind it — with the guard none the wiser.
+        """
+        imports = self._imports(
+            'import importlib\nimportlib.import_module(".cli.servo", package="ui_servo")\n',
+            "ui_servo.control.servo",
+        )
+        assert "ui_servo.cli.servo" in imports
+        assert violations("ui_servo.control.servo", imports)
 
     def test_the_same_dodge_is_allowed_in_the_composition_root(self) -> None:
         """`cli` may name adapters however it likes; that is what it is for."""

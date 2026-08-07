@@ -153,7 +153,11 @@ async fn promoted_fragment(
     State(state): State<AppState>,
     Path(part): Path<String>,
 ) -> Result<Markup, RouteError> {
-    match fragments::promoted::render(state.assets_dir(), &part) {
+    // Through `state`, not straight off disk: in release that is the map built
+    // and verified at boot, so this route and the home page cannot disagree
+    // about what is promoted, and a post-boot edit cannot reach a visitor here
+    // while the cached page still serves the version that was checked.
+    match state.promoted(&part).map(|p| fragments::promoted::render_verified(&p)) {
         Ok(markup) => Ok(markup),
         Err(fragments::promoted::PromotionError::NotPromoted(part)) => {
             Err(RouteError::UnknownFragment(part))

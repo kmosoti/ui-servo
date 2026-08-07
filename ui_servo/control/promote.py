@@ -4,7 +4,7 @@ The last step of a round is not a verdict, it is a decision, and this is the onl
 sanctioned way that decision reaches something a visitor can load. The pick is
 re-checked through the class-0 sanitiser here rather than trusted from the round,
 because the file on disk is what will be served and the file on disk is what must
-be clean; then it is written to ``site/assets/fragments/<part>.html`` under a
+be clean; then it is written to ``site/promoted/<part>.html`` under a
 provenance comment the Rust side verifies on every request.
 
     <!-- ui-servo: gated round=<n> sha256=<hash> -->
@@ -52,52 +52,66 @@ def _checked(value: str, *, field: str) -> str:
         )
     return value
 
-DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/assets/fragments")
+DEFAULT_FRAGMENTS_DIR: Final[Path] = Path("site/promoted")
 
-_SPAN_ID_ATTR: Final[re.Pattern[str]] = re.compile(
-    r"""\s+data-span-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""", re.IGNORECASE
+_START_TAG: Final[re.Pattern[str]] = re.compile(
+    r"""<[A-Za-z][-A-Za-z0-9]*(?:"[^"]*"|'[^']*'|[^>"'])*/?>"""
 )
-"""A candidate's own span id, *as written inside a start tag*.
+"""A start tag, quote-aware, so a `>` inside a quoted value does not end it.
 
-During a round the id is the join key: the probe files every reading under it and
-the panel cites it in verdicts. After promotion it is a lie. The server's `frame`
-stamps a *fresh* id on the element it serves, so a retained inner id means the
-page carries two, and the probe -- which reads the nearest one -- attributes live
-evidence to `hero-v0`, a candidate that stopped existing when the round ended.
-The symptom is not an error; it is a quietly mis-filed sensor reading, which is
-worse. Stripping here rather than in the server keeps the served bytes and the
-hashed bytes identical.
+End tags, comments, doctypes and CDATA are deliberately not matched: none of them
+carry attributes, so none of them are this function's business.
 
-Applied only within `<...>`, via :func:`strip_span_ids`. Run over the whole
-document this pattern also eats prose: a fragment whose text *mentions* the
-attribute -- ``the attribute data-span-id="hero" is the join key``, or an escaped
-code sample -- would be silently rewritten, and silently is the operative word,
-because the result still sanitises, still hashes and still serves.
+Quote-awareness is not fussiness. `<[^>]*>` ends the tag at the first `>` even
+inside a value, so `<section title="a > b" data-span-id="x">` would keep its
+stale id -- and the failure is silent, because the result still sanitises, still
+hashes and still serves.
 """
 
-_TAG: Final[re.Pattern[str]] = re.compile(r"<[^>!?][^>]*>")
-"""A start or end tag. Comments, doctypes and processing instructions are skipped
-by the leading exclusion: they are not elements, and their contents are text.
+_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
+    r"""\s+(?P<name>[^\s=/>]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?""",
+    re.IGNORECASE,
+)
+"""One attribute, name captured, value consumed whole whatever its quoting.
 
-During a round the id is the join key: the probe files every reading under it and
-the panel cites it in verdicts. After promotion it is a lie. The server's `frame`
-stamps a *fresh* id on the element it serves, so a retained inner id means the
-page carries two, and the probe -- which reads the nearest one -- attributes live
-evidence to `hero-v0`, a candidate that stopped existing when the round ended.
-The symptom is not an error; it is a quietly mis-filed sensor reading, which is
-worse. Stripping here rather than in the server keeps the served bytes and the
-hashed bytes identical.
+Walking a tag attribute by attribute is what makes the difference between
+removing an attribute and corrupting a value. A pattern that simply searches the
+tag text for `data-span-id=...` also matches *inside* another attribute's value:
+`<p title="a data-span-id=&quot;fake&quot; b">` would be rewritten to
+`<p title="a b">`, silently editing markup a critic already approved and then
+hashing the corruption as though it had been judged.
 """
+
+_SPAN_ID: Final[str] = "data-span-id"
+"""The join key. During a round the probe files every reading under it and the
+panel cites it in verdicts; after promotion it is a lie, because the server's
+`frame` stamps a fresh one on the element it serves. Two ids on one element means
+the probe -- which reads the nearest -- attributes live evidence to a candidate
+that stopped existing when the round ended. Not an error: a mis-filed reading,
+which is quieter and worse."""
+
+
+def _strip_tag_attribute(tag: str) -> str:
+    """Rebuild one start tag without its span id, leaving every value intact."""
+    name_end = tag.find(" ") if " " in tag else len(tag) - 1
+    out = [tag[:name_end]]
+    position = name_end
+    while (attribute := _ATTRIBUTE.match(tag, position)) is not None:
+        if attribute.group("name").lower() != _SPAN_ID:
+            out.append(attribute.group(0))
+        position = attribute.end()
+    out.append(tag[position:])
+    return "".join(out)
 
 
 def strip_span_ids(markup: str) -> str:
     """Remove candidate span ids so the server's fresh one is the only one.
 
-    Only attributes are touched. Text that happens to talk about the attribute is
+    Only attribute *names* are matched. Text that talks about the attribute is
     left exactly as written -- a fragment documenting the probe is a fragment,
-    not a mistake.
+    not a mistake -- and so is any other attribute's value.
     """
-    return _TAG.sub(lambda tag: _SPAN_ID_ATTR.sub("", tag.group(0)), markup)
+    return _START_TAG.sub(lambda tag: _strip_tag_attribute(tag.group(0)), markup)
 
 
 class PromotionRefused(Exception):

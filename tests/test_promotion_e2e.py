@@ -30,12 +30,38 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BINARY = REPO_ROOT / "site/target/debug/ui-servo-site"
-HERO = REPO_ROOT / "site/assets/fragments/hero.html"
+HERO = REPO_ROOT / "site/promoted/hero.html"
 
 pytestmark = pytest.mark.skipif(
     not BINARY.is_file() or not HERO.is_file(),
     reason="needs `cargo build` in site/ and a promoted hero",
 )
+
+
+def _stale_sources() -> list[Path]:
+    """Rust sources newer than the binary under test.
+
+    A skip is honest when the binary was never built. It is a lie when the binary
+    exists but predates the code — the suite then reports green for an
+    interoperability contract it checked against a previous version of one side,
+    which is worse than not running at all. Cheap to detect, so detect it.
+    """
+    if not BINARY.is_file():
+        return []
+    built = BINARY.stat().st_mtime
+    sources = [*(REPO_ROOT / "site/src").rglob("*.rs"), REPO_ROOT / "site/Cargo.toml"]
+    return sorted(path for path in sources if path.is_file() and path.stat().st_mtime > built)
+
+
+def test_the_binary_under_test_is_not_stale() -> None:
+    """Fail loudly rather than certify the wrong build."""
+    stale = _stale_sources()
+    assert not stale, (
+        "site/target/debug/ui-servo-site is older than "
+        + ", ".join(str(path.relative_to(REPO_ROOT)) for path in stale[:5])
+        + ". Run `cargo build` in site/; these tests would otherwise pass against "
+        "a binary that does not contain the code being reviewed."
+    )
 
 
 def _free_port() -> int:
@@ -113,6 +139,53 @@ class TestTheGatedPathServes:
             status, body = _get(port, "/")
         assert status == 200
         assert "Kennedy Mosoti" in body
+
+
+class TestTheStaticRootCannotServeAPick:
+    """A promoted file must be unreachable except through the verifying route.
+
+    This started as deny routes on `/assets/fragments/{*rest}` while the files
+    still lived inside the static root. It did not hold: axum matches the raw
+    path and `ServeDir` percent-decodes, so `/assets/%66ragments/hero.html`
+    missed the deny route, decoded back to the real file, and returned the raw
+    body — no provenance check, no hash check, no frame. Confirmed against the
+    running binary, which is why the fix was to move the directory out of the
+    static root rather than to add another encoding to the denylist.
+
+    A denylist over an attacker-controlled encoding is a losing position. These
+    cases exist to notice if anyone re-enters it.
+    """
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/assets/promoted/hero.html",
+            "/assets/%70romoted/hero.html",  # 'p' percent-encoded
+            "/assets/promoted%2Fhero.html",  # separator percent-encoded
+            "/assets/../promoted/hero.html",
+            "/assets/%2e%2e/promoted/hero.html",
+            "/assets/..%2fpromoted%2fhero.html",
+            "/promoted/hero.html",
+            "/assets/fragments/hero.html",  # the old location
+            "/assets/%66ragments/hero.html",  # the exploit that worked
+        ],
+    )
+    def test_no_encoding_reaches_the_raw_file(self, path: str) -> None:
+        with _server(dev=False) as (_, port):
+            status, body = _get(port, path)
+        assert "ui-servo: gated" not in body, (
+            f"{path} served the raw promoted file, provenance comment and all"
+        )
+        assert status != 200, f"{path} returned 200"
+
+    def test_the_verifying_route_still_works(self) -> None:
+        """The point is that one door is open, not that all of them are shut."""
+        with _server(dev=False) as (_, port):
+            status, body = _get(port, "/fragments/promoted/hero")
+        assert status == 200
+        # Framed and stamped, not the file's own bytes.
+        assert "ui-servo: gated" not in body
+        assert "data-fragment=\"promoted-hero\"" in body
 
 
 class TestTamperingIsRefused:

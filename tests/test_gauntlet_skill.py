@@ -49,7 +49,7 @@ LEGACY_GRAMMAR = "<part>.<family>.html"
 BLIND_DIR = "evidence/rounds/<round>/blind/<comparison-id>/"
 BLIND_GRAMMAR = "<part>.<A|B>.<hash>"
 
-PROMOTED_PATH = "site/assets/fragments/<part>.html"
+PROMOTED_PATH = "site/promoted/<part>.html"
 PROMOTED_ROUTE = "/fragments/promoted/{part}"
 PROVENANCE = "<!-- ui-servo: gated round=<n> sha256=<hash> -->"
 

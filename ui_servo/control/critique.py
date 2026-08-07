@@ -375,9 +375,14 @@ class CritiquePanel:
                 label=f"the round-{round_id} prompt",
                 masked=self.masked,
             )
+            # A judge that cannot open a PNG is asked about the markup alone
+            # rather than handed paths it will answer "" to. The prompt already
+            # inlines the markup for exactly this reason, so a text-only family
+            # still casts a real vote instead of silently abstaining.
+            sees = getattr(judge, "reads_images", True)
             request = JudgeRequest.of(
                 prompt,
-                images=[first.screenshot, second.screenshot],
+                images=[first.screenshot, second.screenshot] if sees else [],
                 response_schema=verdict_response_schema(),
                 timeout_s=self.timeout_s,
             )

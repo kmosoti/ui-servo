@@ -40,6 +40,12 @@
   --site-hover-opacity: 0.72;
   --site-press-offset: 1px;
   --site-transparent: transparent;
+  /* The page shell. `--density-measure` caps a line of prose for legibility;
+     it cannot also position the page, so without this the whole document
+     hugged the left edge of a wide viewport with a void beside it. Wider than
+     the measure, because the shell holds the header, the nav and the framed
+     fragments, not just a paragraph. */
+  --site-shell: 82ch;
 }
 
 /* ---------------------------------------------------------------- base ---- */
@@ -72,7 +78,9 @@ html {
 }
 
 body {
-  margin: 0;
+  margin-inline: auto;
+  margin-block: 0;
+  max-width: var(--site-shell);
   font-size: var(--type-base);
   padding-inline: var(--space-lg);
   padding-block: var(--space-md);

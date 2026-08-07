@@ -60,12 +60,19 @@ pub enum RouteError {
 
     #[error("probe.js is not available; run the probe unit (U3) or set UI_SERVO_PROBE")]
     ProbeUnavailable,
+
+    /// A promoted fragment exists but could not prove it was gated. Refusing is
+    /// the whole point of the provenance check, so this is a 500 and not a
+    /// quiet fallback to the placeholder.
+    #[error("promoted fragment refused: {0}")]
+    UngatedPromotion(String),
 }
 
 impl IntoResponse for RouteError {
     fn into_response(self) -> Response {
         let status = match self {
             Self::UnknownFragment(_) | Self::ProbeUnavailable => StatusCode::NOT_FOUND,
+            Self::UngatedPromotion(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::debug!(error = %self, "request rejected");
         (status, self.to_string()).into_response()

@@ -34,7 +34,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, Self
+from typing import Any, ClassVar, Final, Self
 
 import httpx
 import orjson
@@ -366,6 +366,10 @@ class _CliJudge:
 
     family: Family = "unset"
 
+    #: Whether this transport can open a local image. Overridden per family;
+    #: see :attr:`~ui_servo.ports.judge.JudgePort.reads_images`.
+    reads_images: ClassVar[bool] = True
+
     def __init__(
         self, *, recorder: SignalRecorder | None = None, retry_on_schema_miss: bool = True
     ) -> None:
@@ -514,9 +518,20 @@ class CodexJudge(_CliJudge):
 
     family: Family = "codex"
 
-    def __init__(self, binary: Path | str = CODEX_BIN, **kwargs: Any) -> None:
+    #: Effort for a judging call, overriding whatever the operator's
+    #: ``~/.codex/config.toml`` sets for interactive work.
+    DEFAULT_REASONING_EFFORT: ClassVar[str] = "medium"
+
+    def __init__(
+        self,
+        binary: Path | str = CODEX_BIN,
+        *,
+        reasoning_effort: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self.binary = Path(binary)
+        self.reasoning_effort = reasoning_effort or self.DEFAULT_REASONING_EFFORT
 
     def _invoke(self, prompt: Prompt, request: JudgeRequest) -> Attempt:
         with tempfile.TemporaryDirectory(prefix="ui-servo-codex-") as workspace:
@@ -527,6 +542,14 @@ class CodexJudge(_CliJudge):
                 "-s",
                 "read-only",
                 "--skip-git-repo-check",
+                # A critique is a bounded judgement against a written bar, not a
+                # research problem. Whatever effort the operator's config.toml
+                # sets for their own work (this machine ships `ultra`) would
+                # spend minutes per pairwise call and time the panel out; the
+                # panel's variety comes from asking three families, not from
+                # asking one of them harder.
+                "-c",
+                f"model_reasoning_effort={self.reasoning_effort!r}",
                 "-o",
                 str(outfile),
             ]
@@ -586,6 +609,11 @@ class GeminiJudge(_CliJudge):
     """
 
     family: Family = "gemini"
+
+    #: The bridge returns an empty body for any prompt that asks it to open a
+    #: PNG (measured against this box's agy-bridge, both transports). It judges
+    #: from inlined markup instead of abstaining.
+    reads_images: ClassVar[bool] = False
 
     def __init__(
         self,

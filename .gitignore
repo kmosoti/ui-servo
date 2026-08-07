@@ -10,3 +10,7 @@ node_modules/
 
 # U6: rust build artifacts for the site skeleton
 site/target/
+
+# Round artifacts are transient; the promoted pick and the demo are not.
+evidence/rounds/
+!demo/

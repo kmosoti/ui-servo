@@ -22,6 +22,7 @@ use maud::{Markup, html};
 mod colophon;
 mod constellation;
 mod dispatch;
+pub mod promoted;
 mod project_card;
 mod reading_log;
 

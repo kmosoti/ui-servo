@@ -36,7 +36,11 @@ type Family = str
 type Prompt = str
 type ResponseSchema = Mapping[str, Any]
 
-DEFAULT_TIMEOUT_S: Final[int] = 120
+DEFAULT_TIMEOUT_S: Final[int] = 300
+"""A pairwise critique is a few hundred tokens of reasoning over two fragments,
+but it travels through an agentic CLI that may spawn a session, read files and
+think before answering. 120s timed out the slowest family on a real round while
+it was still working; 300s is chosen so a timeout means broken, not busy."""
 
 RC_OK: Final[int] = 0
 """The judge answered. It says nothing about whether the answer was useful."""
@@ -209,6 +213,19 @@ class JudgePort(Protocol):
         """The variety source. Two judges sharing a family are one vote, not two."""
         ...
 
+    @property
+    def reads_images(self) -> bool:
+        """Whether this transport can open the screenshots it is handed.
+
+        Not every CLI on a developer's box is a vision endpoint. One of the three
+        here answers with an empty string when a prompt asks it to read a PNG,
+        and an empty answer is indistinguishable from an abstention -- the panel
+        silently drops from three families to two and nobody is told why. A judge
+        that says it cannot see is given the markup alone and still votes, which
+        is worth more to a decorrelated panel than a blind spot it cannot name.
+        """
+        ...
+
     def judge(self, request: JudgeRequest) -> JudgeResponse:
         """Answer *request*, returning a non-zero ``rc`` rather than raising."""
         ...
@@ -233,6 +250,9 @@ class ScriptedJudge:
 
     family: Family = "scripted"
     responses: tuple[JudgeResponse, ...] = ()
+    #: Defaults to the capable case, so a test that cares about the text-only
+    #: path has to say so and one that does not is unaffected.
+    reads_images: bool = True
     calls: list[JudgeRequest] = field(default_factory=list, compare=False)
 
     def judge(self, request: JudgeRequest) -> JudgeResponse:

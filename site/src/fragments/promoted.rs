@@ -1,0 +1,229 @@
+//! Promoted fragments: the only path from a human pick to the live site.
+//!
+//! The gauntlet ends with a person choosing one variant off the frontier report.
+//! That choice is written to `site/assets/fragments/<part>.html` and served from
+//! here, which is what makes the loop closed rather than advisory — a pick that
+//! only ever lived in `evidence/` would change nothing anyone can visit.
+//!
+//! **Provenance is mandatory.** Every promoted file must carry
+//! `<!-- ui-servo: gated round=<n> sha256=<hash> -->` as written by the
+//! promotion step. The class-0 sanitiser is Python and runs at promotion time,
+//! so this comment is the only evidence the running site has that the markup it
+//! is about to serve was ever gated at all. A file without it — hand-dropped,
+//! half-copied, or written by something that skipped the loop — is refused. The
+//! hash is checked too: an edit after promotion is an ungated edit.
+//!
+//! The refusal is loud on purpose. In dev it is a 500 and a logged violation; a
+//! silent fallback to the placeholder would let an ungated fragment look exactly
+//! like a page nobody has picked for yet.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use maud::{Markup, PreEscaped, html};
+use sha2::{Digest, Sha256};
+use tracing::warn;
+
+/// Where promoted picks live, relative to the assets dir. Tracked in git:
+/// a pick is a decision, not a cache.
+pub const PROMOTED_DIR: &str = "fragments";
+
+const PROVENANCE_PREFIX: &str = "<!-- ui-servo: gated";
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum PromotionError {
+    #[error("no promoted fragment for part {0:?}")]
+    NotPromoted(String),
+    #[error("promoted fragment {0:?} is unreadable: {1}")]
+    Unreadable(String, String),
+    #[error(
+        "promoted fragment {0:?} carries no ui-servo provenance comment; it was never gated \
+         (promote through the gauntlet instead of writing this file by hand)"
+    )]
+    MissingProvenance(String),
+    #[error(
+        "promoted fragment {0:?} was edited after promotion: provenance records sha256 {1}, \
+         the markup on disk hashes to {2}"
+    )]
+    HashMismatch(String, String, String),
+}
+
+/// A promoted fragment that has proven where it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Promoted {
+    pub part: String,
+    pub round: String,
+    pub markup: String,
+}
+
+fn promoted_path(assets_dir: &Path, part: &str) -> PathBuf {
+    assets_dir.join(PROMOTED_DIR).join(format!("{part}.html"))
+}
+
+/// Read the provenance comment's `round=` and `sha256=` values, if both are there.
+fn parse_provenance(markup: &str) -> Option<(String, String)> {
+    let line = markup
+        .lines()
+        .find(|line| line.trim_start().starts_with(PROVENANCE_PREFIX))?;
+    let round = field(line, "round=")?;
+    let sha = field(line, "sha256=")?;
+    Some((round, sha))
+}
+
+fn field(line: &str, key: &str) -> Option<String> {
+    let rest = &line[line.find(key)? + key.len()..];
+    let value: String = rest
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != '-' && *c != '>')
+        .collect();
+    (!value.is_empty()).then_some(value)
+}
+
+/// The body a hash covers: everything after the provenance line. The comment
+/// cannot cover itself, and anchoring on "the rest of the file" means adding a
+/// second comment is also a mismatch.
+fn hashed_body(markup: &str) -> &str {
+    match markup.find('\n') {
+        Some(index) if markup.trim_start().starts_with(PROVENANCE_PREFIX) => &markup[index + 1..],
+        _ => markup,
+    }
+}
+
+pub fn sha256_of(body: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(body.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Load a promoted fragment, verifying it was gated and unedited since.
+pub fn load(assets_dir: &Path, part: &str) -> Result<Promoted, PromotionError> {
+    let path = promoted_path(assets_dir, part);
+    if !path.is_file() {
+        return Err(PromotionError::NotPromoted(part.to_owned()));
+    }
+    let raw = fs::read_to_string(&path)
+        .map_err(|error| PromotionError::Unreadable(part.to_owned(), error.to_string()))?;
+
+    let (round, recorded) =
+        parse_provenance(&raw).ok_or_else(|| PromotionError::MissingProvenance(part.to_owned()))?;
+    let actual = sha256_of(hashed_body(&raw));
+    if actual != recorded {
+        return Err(PromotionError::HashMismatch(
+            part.to_owned(),
+            recorded,
+            actual,
+        ));
+    }
+    Ok(Promoted {
+        part: part.to_owned(),
+        round,
+        markup: hashed_body(&raw).trim().to_owned(),
+    })
+}
+
+/// Render a promoted fragment inside the standard frame, so a pick is measurable
+/// on exactly the same terms as a hand-written fragment.
+pub fn render(assets_dir: &Path, part: &str) -> Result<Markup, PromotionError> {
+    let promoted = load(assets_dir, part)?;
+    Ok(super::frame(
+        &format!("promoted-{}", promoted.part),
+        &format!("Promoted {} (round {})", promoted.part, promoted.round),
+        // Verified above: gated by the class-0 sanitiser at promotion and
+        // unchanged since. That is the whole reason the provenance check exists.
+        html! { (PreEscaped(promoted.markup.clone())) },
+    ))
+}
+
+/// Render the promotion if there is one, else `None` so the caller can fall back
+/// to its built-in placeholder. A *broken* promotion is not `None` — it is
+/// logged and still `None`, because refusing to serve is the point, but the page
+/// should say so rather than silently pretending nothing was ever picked.
+pub fn render_or_placeholder(assets_dir: &Path, part: &str) -> Option<Markup> {
+    match render(assets_dir, part) {
+        Ok(markup) => Some(markup),
+        Err(PromotionError::NotPromoted(_)) => None,
+        Err(error) => {
+            warn!(%error, part, "refusing to serve a promoted fragment");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write(root: &Path, part: &str, contents: &str) {
+        let dir = root.join(PROMOTED_DIR);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(format!("{part}.html")), contents).unwrap();
+    }
+
+    fn temp() -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "ui-servo-promoted-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn promoted_file(body: &str, round: &str) -> String {
+        format!(
+            "<!-- ui-servo: gated round={round} sha256={} -->\n{body}",
+            sha256_of(body)
+        )
+    }
+
+    #[test]
+    fn a_gated_pick_is_served() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        write(&root, "hero", &promoted_file(body, "1"));
+        let loaded = load(&root, "hero").unwrap();
+        assert_eq!(loaded.round, "1");
+        assert_eq!(loaded.markup, body);
+        let markup = render(&root, "hero").unwrap().into_string();
+        assert!(markup.contains("data-span-id="), "{markup}");
+        assert!(markup.contains("picked"), "{markup}");
+    }
+
+    #[test]
+    fn an_unpromoted_part_is_absent_not_broken() {
+        let root = temp();
+        assert_eq!(
+            load(&root, "hero").unwrap_err(),
+            PromotionError::NotPromoted("hero".into())
+        );
+        assert!(render_or_placeholder(&root, "hero").is_none());
+    }
+
+    #[test]
+    fn a_hand_dropped_fragment_is_refused() {
+        let root = temp();
+        write(&root, "hero", "<p class=\"text-md\">never gated</p>");
+        assert_eq!(
+            load(&root, "hero").unwrap_err(),
+            PromotionError::MissingProvenance("hero".into())
+        );
+        assert!(render(&root, "hero").is_err());
+    }
+
+    #[test]
+    fn an_edit_after_promotion_is_refused() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        let mut file = promoted_file(body, "1");
+        file.push_str("<p class=\"text-md\">smuggled in after the gate</p>");
+        write(&root, "hero", &file);
+        assert!(matches!(
+            load(&root, "hero").unwrap_err(),
+            PromotionError::HashMismatch(..)
+        ));
+    }
+}

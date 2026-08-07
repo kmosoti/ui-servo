@@ -109,6 +109,7 @@ fn app(state: AppState) -> Router {
         .route("/writing", get(writing))
         .route("/about", get(about))
         .route("/fragments/{name}", get(fragment))
+        .route("/fragments/promoted/{part}", get(promoted_fragment))
         .nest("/assets", assets)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -135,6 +136,25 @@ async fn about(State(state): State<AppState>) -> Markup {
 /// every measurement taken afterwards.
 async fn fragment(Path(name): Path<String>) -> Result<Markup, RouteError> {
     fragments::render(&name).ok_or(RouteError::UnknownFragment(name))
+}
+
+/// A human pick, served only if it can prove it was gated. An unpromoted part is
+/// a 404; an ungated or edited one is a 500, because serving it would be the one
+/// way an unreviewed fragment reaches a visitor.
+async fn promoted_fragment(
+    State(state): State<AppState>,
+    Path(part): Path<String>,
+) -> Result<Markup, RouteError> {
+    match fragments::promoted::render(state.assets_dir(), &part) {
+        Ok(markup) => Ok(markup),
+        Err(fragments::promoted::PromotionError::NotPromoted(part)) => {
+            Err(RouteError::UnknownFragment(part))
+        }
+        Err(error) => {
+            tracing::error!(%error, "refusing to serve a promoted fragment");
+            Err(RouteError::UngatedPromotion(error.to_string()))
+        }
+    }
 }
 
 /// Serve `probe.js` from wherever it was resolved at startup.

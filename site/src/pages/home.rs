@@ -14,6 +14,13 @@ pub fn render(state: &AppState) -> Markup {
             route: "/",
         },
         html! {
+            // The hero is the gauntlet's own output when a pick has been
+            // promoted, and the hand-written placeholder until then. Same frame,
+            // same span id, same sensors either way — a promoted fragment is not
+            // a special case of a page, it is just the page.
+            @if let Some(promoted) = fragments::promoted::render_or_placeholder(state.assets_dir(), "hero") {
+                (promoted)
+            } @else {
             article class="my-xl" {
                 p class="type-sm text-accent-2" { "Nairobi · building in the open" }
                 h1 class="type-display" { "Kennedy Mosoti" }
@@ -29,6 +36,7 @@ pub fn render(state: &AppState) -> Markup {
                     "probe that judges every candidate the gauntlet produces. If the site "
                     "drifts, the site is the first thing to say so."
                 }
+            }
             }
 
             section class="my-xl" {

@@ -456,8 +456,18 @@ class TestBlindStaging:
             report=None,  # type: ignore[arg-type] -- unused by the notes filter
             notes="- heading built by alpha [level=2]",
         )
-        assert servo._blind_notes(leaky, ("alpha",)) == ""
-        assert servo._blind_notes(leaky, ()) != ""
+        # The accessibility tree names the builder, so it is dropped. The
+        # markup, which is clean, still goes -- a text-only critic reads the
+        # markup, and dropping it too would silence a whole family over a leak
+        # that was not in it.
+        blinded = servo._blind_notes(leaky, ("alpha",))
+        assert "alpha" not in blinded
+        assert "accessibility tree" not in blinded
+        assert "markup:" in blinded
+
+        # With no leak to find, both halves are presented.
+        both = servo._blind_notes(leaky, ())
+        assert "markup:" in both and "accessibility tree" in both
 
 
 # --------------------------------------------------------------------------- #

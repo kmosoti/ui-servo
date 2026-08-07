@@ -707,10 +707,29 @@ def stage_blind(
 
 
 def _blind_notes(observation: _Observation, extra_tokens: Sequence[str]) -> str:
+    """What the critic reads besides the screenshot: the markup, then the tree.
+
+    The markup is inlined rather than merely pointed at, because "read this
+    file" is a capability, not a given. Of the three families on this box only
+    some can open a local PNG; one returns an empty reply when asked to, and a
+    critic that cannot see the artefact abstains, which costs the round a whole
+    decorrelated vote. Text every family can read is the difference between a
+    three-family panel and a one-family opinion.
+
+    Both parts are blindness-checked. The markup was already checked at staging;
+    it is checked again here because this is where it enters a prompt, and the
+    accessibility tree is dropped rather than fixed if it names an author --
+    losing detail costs the critics nuance, while sending it costs them their
+    blindness.
+    """
+    parts: list[str] = []
+    markup = observation.variant.html.strip()
+    if markup and not blindness_violations(markup, extra_tokens=extra_tokens):
+        parts.append(f"markup:\n{markup}")
     notes = observation.notes.strip()
-    if not notes or blindness_violations(notes, extra_tokens=extra_tokens):
-        return ""
-    return notes
+    if notes and not blindness_violations(notes, extra_tokens=extra_tokens):
+        parts.append(f"accessibility tree:\n{notes}")
+    return "\n\n".join(parts)
 
 
 # --------------------------------------------------------------------------- #

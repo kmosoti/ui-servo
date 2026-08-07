@@ -2,7 +2,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-evidence/
 harness/artifacts/
 harness/baselines/*.png
 node_modules/
@@ -13,6 +12,5 @@ site/target/
 
 # Working evidence is transient. The demo round is not: a reader who cannot
 # inspect the gate rejection, the blind prompts and the verdicts has to take
-# the README's word for all three.
+# the README's word for all three, so demo/ is tracked in full.
 evidence/
-!demo/

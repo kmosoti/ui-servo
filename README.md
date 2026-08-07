@@ -117,6 +117,42 @@ that does not exist or cannot be read, the CLI exits 2 naming that path. It neve
 through to a different contract — reporting `ok` for a document the operator did not name
 is worse than failing.
 
+## Running a round
+
+A round takes a directory of candidate fragments, gates them, has a blind
+cross-family panel rank the survivors, and writes everything it saw to disk.
+Candidates are named `<part>.<family>.<k>.html` — the family is what the
+self-preference guard reads, so it has to be true.
+
+```bash
+# 1. gate, judge, rank. Add --dry-judges to run the whole pipeline with no
+#    model calls at all; the gates and the archive still do their work.
+uv run python -m ui_servo.cli.servo \
+  --candidates path/to/candidates --part hero --round 5 \
+  --part-spec path/to/hero.part-spec.md --out evidence/rounds/5
+
+# 2. read the frontier report, then promote the one you want
+open evidence/rounds/5/frontier.html
+uv run python -m ui_servo.cli.promote \
+  --pick path/to/candidates/hero.claude.0.html --part hero --round 5
+
+# 3. serve it
+cd site && cargo run
+```
+
+Two things the round will not do for you. It will not pick — the frontier report
+ends at a human, by design. And it will not pretend to a verdict it does not
+have: a comparison that cannot reach two decorrelated critics is reported as
+**escalated**, not averaged into a ranking.
+
+`--part-spec` is optional and worth writing. It is the difference between asking
+a critic "which of these is better?" and "which of these is closer to *this*",
+and the verdicts change accordingly — see the demo.
+
+**[`demo/`](demo/) is a complete round, end to end**, with the candidates, the
+blind prompts the critics actually received, their verdicts, the gate rejection,
+and the promoted result. Including what the three rounds before it got wrong.
+
 ## Layout
 
 ```
@@ -125,8 +161,10 @@ ui_servo/domain/           pure domain: contract, rubric, blandness, QD archive
 ui_servo/ports/            interfaces the loop needs from the world
 ui_servo/control/          the loops: regulator (fast), critique + explore (slow)
 ui_servo/adapters/         browsers, model CLIs, evidence store, beacon ingest
-probe/                     Tier 1 in-browser runtime
+ui_servo/cli/              composition roots — the only layer that names an adapter
+probe/probe.js             in-browser sensor runtime
 site/                      the artefact under control: axum + htmx + WASM islands
+demo/                      one full round, with its evidence
 tools/                     unit specs and the adversarial review harness
 tests/                     deterministic suite, including the dependency-rule guard
 REVIEW_LOG.md              critic verdicts per unit, kept for audit

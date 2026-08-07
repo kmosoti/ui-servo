@@ -40,7 +40,10 @@ pub fn render(state: &AppState) -> Markup {
                 h2 class="type-md text-muted" { "Elsewhere" }
                 ul class="gap-sm" {
                     li { "Email — " code { "kennedy.rmosoti@gmail.com" } }
-                    li { "Code — " a href="/projects" { "the projects page" } ", mostly" }
+                    // Was "the projects page", which is a redirect now. This is
+                    // also the only link to the résumé, so the asset is
+                    // reachable rather than merely served.
+                    li { "Résumé — " a href="/assets/kennedy-mosoti-resume.pdf" { "PDF" } }
                     li { "Talks — " span class="text-muted" { "none scheduled, which is the correct number" } }
                 }
             }

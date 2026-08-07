@@ -1,18 +1,21 @@
-//! Pages: the four server-rendered documents. Each one is a shell plus prose
+//! Pages: the two server-rendered documents. Each one is a shell plus prose
 //! plus a small number of fragment slots.
 //!
 //! Pages are *not* the gauntlet's unit of work — fragments are. A page exists
 //! to give a fragment somewhere real to live, with real neighbours, so that a
 //! measurement taken on it is a measurement of the site and not of a test
 //! harness.
+//!
+//! There were four. `projects` and `writing` were placeholder lists with
+//! invented titles and invented dates, which is the one thing a site whose
+//! argument is "measure what you actually shipped" cannot have on it. They are
+//! redirects in `main::app` now. A page comes back when there is content for it.
 
 use crate::span::new_span_id;
 use maud::{Markup, html};
 
 pub mod about;
 pub mod home;
-pub mod projects;
-pub mod writing;
 
 /// A swap target. Carries its own span id so that an htmx swap always resolves
 /// to *some* join key, even in the instant between removing the old fragment

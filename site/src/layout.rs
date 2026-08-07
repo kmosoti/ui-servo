@@ -8,13 +8,14 @@
 use crate::state::AppState;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 
-/// The four places this site goes. Order is the nav order.
-pub const NAV: [(&str, &str); 4] = [
-    ("/", "Index"),
-    ("/projects", "Projects"),
-    ("/writing", "Writing"),
-    ("/about", "About"),
-];
+/// The two places this site goes. Order is the nav order.
+///
+/// It was four. `/projects` and `/writing` held placeholder lists — invented
+/// titles, invented dates — and a nav entry is a promise that there is
+/// something behind it. Both are permanent redirects to `/` now, and the entries
+/// are gone rather than pointing at a redirect: a nav link that bounces is a
+/// second request and a lie about where you are.
+pub const NAV: [(&str, &str); 2] = [("/", "Index"), ("/about", "About")];
 
 /// Per-page metadata the shell needs and the page body cannot supply itself.
 pub struct PageMeta<'a> {
@@ -37,6 +38,9 @@ pub fn shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Markup {
                 meta name="color-scheme" content=(state.color_scheme());
                 meta name="description" content=(meta.description);
                 title { (meta.title) " — kmosoti" }
+                // SVG only, no PNG fallback: every browser that runs the wasm
+                // island on this site also reads an SVG favicon.
+                link rel="icon" type="image/svg+xml" href="/assets/favicon.svg";
                 link rel="stylesheet" href="/assets/tokens.css";
                 link rel="stylesheet" href="/assets/site.css";
                 script src="/assets/htmx.min.js" defer {}

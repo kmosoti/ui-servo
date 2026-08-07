@@ -1,9 +1,15 @@
 # site/ — the product skeleton
 
-The thing the control loop actually steers. Four server-rendered pages (axum +
+The thing the control loop actually steers. Two server-rendered pages (axum +
 maud), a fragment endpoint htmx swaps against, and an asset directory whose
-interesting files are all *generated from the contract* rather than typed by
+interesting files are mostly *generated from the contract* rather than typed by
 hand.
+
+It was four pages. `/projects` and `/writing` held placeholder lists — invented
+titles, invented dates — which is the one thing a site whose whole argument is
+"measure what actually shipped" must not carry. Both are permanent redirects to
+`/` now, and the modules are deleted rather than merely unrouted: an unrouted
+page still compiles and still tempts somebody to route it again.
 
 There are no template files on disk: maud compiles HTML into the binary, so a
 page that does not compile cannot be served, and a fragment is an ordinary Rust
@@ -17,7 +23,7 @@ site/
   src/state.rs          startup config: assets dir, motion table, colour scheme
   src/span.rs           span ids — the join key for the whole sensor stack
   src/error.rs          StartupError / RouteError (thiserror)
-  src/pages/            one module per route (home, projects, writing, about)
+  src/pages/            one module per route (home, about)
   src/fragments/        one module per fragment — the gauntlet's unit of work
   assets/tokens.css     GENERATED from direction/direction.toml
   assets/motion.json    GENERATED from direction/direction.toml
@@ -69,11 +75,11 @@ Shutdown is graceful on both Ctrl-C and `SIGTERM`.
 | Route              | Response |
 | ------------------ | -------- |
 | `/`                | index page |
-| `/projects`        | projects page |
-| `/writing`         | writing page |
 | `/about`           | about page |
+| `/projects`        | **308** to `/` — retired placeholder |
+| `/writing`         | **308** to `/` — retired placeholder |
 | `/fragments/{name}`| **bare** fragment HTML for htmx swaps — no shell, no doctype |
-| `/assets/*`        | `tokens.css`, `site.css`, `motion.json`, `htmx.min.js`, `probe.js` |
+| `/assets/*`        | `tokens.css`, `site.css`, `motion.json`, `htmx.min.js`, `probe.js`, `favicon.svg`, `kennedy-mosoti-resume.pdf` |
 
 Fragment names: `dispatch`, `project-card`, `reading-log`, `colophon`. An
 unknown name is a 404, never a panic — the name comes from a URL.
@@ -225,5 +231,7 @@ cargo test                         # span ids, fragment invariants, asset sanity
 cargo fmt --check && cargo clippy
 ```
 
-Acceptance for this unit: the build is clean, and all four page routes return
-200 with `data-span-id` present in the body.
+Acceptance for this unit: the build is clean, both page routes return 200 with
+`data-span-id` present in the body, the two retired routes return 308, and
+`/assets/kennedy-mosoti-resume.pdf` serves as `application/pdf` rather than as a
+download prompt.

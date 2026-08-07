@@ -1,9 +1,10 @@
 //! ui-servo-site — the product skeleton the control loop steers.
 //!
-//! Four server-rendered pages, a fragment endpoint htmx swaps against, and a
+//! Two server-rendered pages, a fragment endpoint htmx swaps against, and a
 //! static asset directory holding the generated token sheet, the generated
-//! motion table and a vendored htmx. In dev (`UI_SERVO_DEV=1`) every page also
-//! carries the browser probe and the config it reads.
+//! motion table, a vendored htmx and the owner's résumé. In dev
+//! (`UI_SERVO_DEV=1`) every page also carries the browser probe and the config
+//! it reads.
 //!
 //! Run it:
 //!
@@ -22,7 +23,7 @@ mod state;
 use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use error::{RouteError, StartupError};
 use maud::Markup;
@@ -104,9 +105,17 @@ fn app(state: AppState) -> Router {
 
     Router::new()
         .route("/", get(home))
-        .route("/projects", get(projects))
-        .route("/writing", get(writing))
         .route("/about", get(about))
+        // The two placeholder pages, retired. Permanent rather than temporary
+        // because the invented content is not coming back, and a redirect
+        // rather than a kept-but-empty page because those URLs are already in
+        // somebody's history and a 404 there teaches nothing.
+        //
+        // Both land on `/`, not on each other's successor: there is no
+        // successor yet, and pointing at a page that does not exist is how a
+        // redirect becomes a second thing to maintain.
+        .route("/projects", get(|| async { Redirect::permanent("/") }))
+        .route("/writing", get(|| async { Redirect::permanent("/") }))
         .route("/fragments/{name}", get(fragment))
         .route("/fragments/promoted/{part}", get(promoted_fragment))
         .nest("/assets", assets)
@@ -116,14 +125,6 @@ fn app(state: AppState) -> Router {
 
 async fn home(State(state): State<AppState>) -> Result<Markup, RouteError> {
     pages::home::render(&state)
-}
-
-async fn projects(State(state): State<AppState>) -> Markup {
-    pages::projects::render(&state)
-}
-
-async fn writing(State(state): State<AppState>) -> Markup {
-    pages::writing::render(&state)
 }
 
 async fn about(State(state): State<AppState>) -> Markup {
@@ -231,6 +232,9 @@ async fn static_asset(
         Some("wasm") => "application/wasm",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
+        // Without this the résumé is served as octet-stream, which every
+        // browser turns into a download prompt rather than a document.
+        Some("pdf") => "application/pdf",
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     };
@@ -341,13 +345,15 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
-    /// The four page routes, which are also the four nav entries.
-    const PAGES: [&str; 4] = ["/", "/projects", "/writing", "/about"];
+    /// The two page routes, which are also the two nav entries. `/projects` and
+    /// `/writing` were on this list; they are redirects now, and are asserted
+    /// as redirects in `the_retired_pages_redirect_permanently` instead.
+    const PAGES: [&str; 2] = ["/", "/about"];
 
     /// Drive the real routing table through `oneshot` — no socket, no port, but
     /// the same `Router` `main` serves.
-    async fn get(path: &str, dev: bool) -> (StatusCode, String) {
-        let response = app(AppState::for_tests(dev))
+    async fn response(path: &str, dev: bool) -> Response {
+        app(AppState::for_tests(dev))
             .oneshot(
                 Request::builder()
                     .uri(path)
@@ -355,13 +361,29 @@ mod tests {
                     .expect("valid request"),
             )
             .await
-            .expect("router is infallible");
+            .expect("router is infallible")
+    }
 
+    async fn get(path: &str, dev: bool) -> (StatusCode, String) {
+        let response = response(path, dev).await;
         let status = response.status();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body collects");
         (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// One response header, or the empty string. Enough to judge a redirect or
+    /// an asset without collecting a body.
+    async fn header_of(path: &str, name: header::HeaderName) -> (StatusCode, String) {
+        let response = response(path, false).await;
+        let value = response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        (response.status(), value)
     }
 
     #[tokio::test]
@@ -405,6 +427,74 @@ mod tests {
 
         let (status, _) = get("/fragments/no-such-fragment", false).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The retired pages. A redirect *and* a page at one path would be two
+    /// things to keep in step, so the modules were deleted rather than kept
+    /// unrouted — an unrouted page still compiles, still passes review, and
+    /// still tempts somebody to route it again.
+    #[tokio::test]
+    async fn the_retired_pages_redirect_permanently() {
+        for path in ["/projects", "/writing"] {
+            let (status, location) = header_of(path, header::LOCATION).await;
+            assert_eq!(status, StatusCode::PERMANENT_REDIRECT, "{path}");
+            assert_eq!(location, "/", "{path}");
+        }
+    }
+
+    /// Nothing the site renders links to a route that redirects.
+    ///
+    /// `the_nav_links_only_to_routes_that_exist` cannot catch this: a redirect
+    /// is not a 404, so a stale link passes that test while costing every
+    /// visitor who follows it a second request and a wrong-looking address bar.
+    /// Checked over whole pages rather than the nav, because the About page's
+    /// "the projects page" link was exactly this and lived in the body.
+    #[tokio::test]
+    async fn no_page_links_to_a_route_that_redirects() {
+        for path in PAGES {
+            let (_, body) = get(path, false).await;
+            for retired in ["/projects", "/writing"] {
+                assert!(
+                    !body.contains(&format!("href=\"{retired}\"")),
+                    "{path} links to {retired}, which redirects"
+                );
+            }
+        }
+    }
+
+    /// The résumé is the one asset a visitor is asked to open rather than the
+    /// browser to consume, and it has to arrive as a document rather than as a
+    /// download prompt. The favicon is here too because a `<link rel="icon">`
+    /// that 404s is invisible in every test that only reads markup.
+    #[tokio::test]
+    async fn the_committed_assets_serve_with_the_right_type() {
+        for (path, content_type) in [
+            ("/assets/kennedy-mosoti-resume.pdf", "application/pdf"),
+            ("/assets/favicon.svg", "image/svg+xml"),
+        ] {
+            let (status, actual) = header_of(path, header::CONTENT_TYPE).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert_eq!(actual, content_type, "{path}");
+        }
+
+        // Every asset the shell asks for on every page load, so a rename shows
+        // up here rather than as a silent 404 in somebody's console.
+        let (_, page) = get("/", false).await;
+        for href in [
+            "/assets/favicon.svg",
+            "/assets/tokens.css",
+            "/assets/site.css",
+            "/assets/htmx.min.js",
+            "/assets/islands/loader.js",
+        ] {
+            assert!(page.contains(href), "the shell no longer references {href}");
+            let (status, _) = get(href, false).await;
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "the shell references {href}, which 404s"
+            );
+        }
     }
 
     /// Dev mode is the difference between a page that is measured and a page

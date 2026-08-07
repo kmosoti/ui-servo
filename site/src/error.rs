@@ -64,6 +64,22 @@ pub enum StartupError {
     )]
     PromotedInsideAssets { promoted: PathBuf, assets: PathBuf },
 
+    /// A symlink inside the static root points outside it.
+    ///
+    /// `ServeDir` follows links, so one of these can reach the promotion
+    /// directory (or anything else) no matter how disjoint the two roots are.
+    #[error(
+        "{link} is a symlink to {target}, which is outside the asset root {assets}. The static \
+         file server follows links, so this can serve files that were never gated — including \
+         promoted markup, whose separation from the asset root is the only thing making \
+         provenance checks unavoidable."
+    )]
+    AssetSymlinkEscapes {
+        link: PathBuf,
+        target: PathBuf,
+        assets: PathBuf,
+    },
+
     #[error("UI_SERVO_PORT={0:?} is not a port number")]
     BadPort(String),
 

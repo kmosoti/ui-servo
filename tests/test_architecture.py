@@ -152,16 +152,36 @@ def imported_modules(source: str, module: str, *, is_package: bool) -> frozenset
 def _import_module_aliases(tree: ast.AST) -> frozenset[str]:
     """Every local name bound to ``importlib.import_module``.
 
-    ``from importlib import import_module as load`` renames the function, and a
-    guard that recognises only the original spelling is a guard with a rename
-    away from being bypassed.
+    Three spellings, because two of them were found by a reviewer after the first
+    was fixed: the import alias (``from importlib import import_module as load``)
+    and plain assignment (``load = import_module``, ``load = importlib.import_module``).
+    A guard that recognises one name is a guard one rename away from decorative.
+
+    Fixed-point rather than single-pass, so a chain (``a = import_module``,
+    ``b = a``) is also caught -- an aliasing check that stops after one hop just
+    moves the bypass one line further down.
     """
     names = {"import_module"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "importlib":
-            names.update(
-                alias.asname or alias.name for alias in node.names if alias.name == "import_module"
-            )
+    for _ in range(8):  # a chain longer than this is not a rename, it is an essay
+        before = len(names)
+        for node in ast.walk(tree):
+            match node:
+                case ast.ImportFrom(module="importlib", names=imported):
+                    names.update(
+                        alias.asname or alias.name
+                        for alias in imported
+                        if alias.name == "import_module"
+                    )
+                case ast.Assign(targets=targets, value=value) if _is_import_module(
+                    value, frozenset(names)
+                ):
+                    names.update(
+                        target.id for target in targets if isinstance(target, ast.Name)
+                    )
+                case _:
+                    pass
+        if len(names) == before:
+            break
     return frozenset(names)
 
 
@@ -196,14 +216,18 @@ def _dynamic_targets(
     if not target.startswith("."):
         return {target}
 
-    anchor = next(
-        (
-            keyword.value.value
-            for keyword in call.keywords
-            if keyword.arg == "package" and isinstance(keyword.value, ast.Constant)
-        ),
-        package,
-    )
+    # `package` is the second *positional* parameter as well as a keyword one.
+    # Reading only the keyword form meant `import_module(".adapters.x", "ui_servo")`
+    # was resolved against the calling module instead of against `ui_servo`,
+    # which is what the interpreter would actually import.
+    anchor = package
+    match call.args:
+        case [_, ast.Constant(value=str(positional)), *_]:
+            anchor = positional
+        case _:
+            for keyword in call.keywords:
+                if keyword.arg == "package" and isinstance(keyword.value, ast.Constant):
+                    anchor = str(keyword.value.value)
     level = len(target) - len(target.lstrip("."))
     parts = anchor.split(".") if anchor else []
     trimmed = parts[: len(parts) - (level - 1)] if level > 1 else parts
@@ -335,6 +359,38 @@ class TestTheGuardItself:
         )
         assert "ui_servo.adapters.nh3_sanitizer" in imports
         assert violations("ui_servo.control.servo", imports)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            # Assignment, not an import alias.
+            'from importlib import import_module\nload = import_module\n'
+            'load("ui_servo.adapters.nh3_sanitizer")\n',
+            'import importlib\nload = importlib.import_module\n'
+            'load("ui_servo.adapters.nh3_sanitizer")\n',
+            # A chain, because stopping after one hop just moves the bypass down.
+            'from importlib import import_module\na = import_module\nb = a\n'
+            'b("ui_servo.adapters.nh3_sanitizer")\n',
+        ],
+    )
+    def test_rebinding_import_module_does_not_hide_the_import(self, source: str) -> None:
+        imports = self._imports(source, "ui_servo.control.servo")
+        assert "ui_servo.adapters.nh3_sanitizer" in imports, source
+        assert violations("ui_servo.control.servo", imports), source
+
+    def test_the_package_argument_is_read_positionally_too(self) -> None:
+        """`import_module(name, package)` — `package` is the second positional.
+
+        Reading only the keyword form resolved `.adapters.x` against the calling
+        module instead of against `ui_servo`, so the guard recorded a name the
+        interpreter would never import and missed the one it would.
+        """
+        imports = self._imports(
+            'import importlib\nimportlib.import_module(".adapters.nh3_sanitizer", "ui_servo")\n',
+            "ui_servo.domain.contract",
+        )
+        assert "ui_servo.adapters.nh3_sanitizer" in imports
+        assert violations("ui_servo.domain.contract", imports)
 
     def test_a_relative_dynamic_import_is_resolved_not_taken_literally(self) -> None:
         """``.cli.servo`` is `ui_servo.cli.servo`, not a third-party package.

@@ -254,3 +254,91 @@ not a better test but a reviewer asking how the two layers disagree about the
 same path — and then me firing real encodings at a running binary instead of
 reasoning about the router. Deterministic verification beat argument, which is
 the premise the repo is built on.
+
+---
+
+## U18 — the review of the review's fixes
+
+Three criticals and five minors against U17. Every critical was reproduced
+against the running binary before being fixed, and two of them were defects in
+fixes I had described as complete.
+
+### The circular check
+
+I wrote, in U17, that the provenance line was "pinned to its exact canonical
+form". It was not, and the reasoning was circular: the canonical form was
+*computed from the parsed values*, so a changed value simply produced a
+different, equally canonical line. Editing `round=4` to `round=99` left the body
+hash valid, the file loaded, cached at boot, and served a page attributing itself
+to a round that never produced it. Confirmed by doing it.
+
+The digest now covers what the comment *asserts*, not just what sits below it:
+the preimage is `ui-servo/1 \n part \n round \n body`. A comment still cannot
+hash itself, but the values it carries are bound into the hash, so editing either
+is an edit like any other. This is a format change — every existing promotion had
+to be re-promoted, which is the correct behaviour for a file that can no longer
+prove itself under the current rules.
+
+Rust also now enforces the writer's grammar (`[A-Za-z0-9._-]{1,64}`, plus 64
+lowercase hex for the digest). It had been accepting any non-empty round —
+Unicode, punctuation, arbitrary length — so a file could claim provenance the
+promoter is incapable of writing. Two implementations of one format have to agree
+about what the format *is*, or the stricter one is decorative.
+
+### The overlap check that did not overlap
+
+`canonicalize` fails on a path that does not exist, and my check fell back to the
+path as written. With a relative `UI_SERVO_PROMOTED_ROOT` and no promotion
+directory yet — which is every repo before its first promotion — the promoted
+side stayed relative while the asset side resolved to absolute. The two could not
+share a prefix, the check passed, and the first promotion created the directory
+*inside* the served root. Reproduced: `GET /assets/promoted/hero.html` returned
+the raw file.
+
+Paths are now made absolute and resolved through their nearest existing ancestor.
+Separately, a symlink inside the asset root (`assets/picks -> ../promoted`)
+defeated the check entirely, because the roots really were disjoint and
+`ServeDir` follows links; the asset tree is now walked at boot and any link
+leaving it refuses startup.
+
+### The guard, again
+
+Two more bypasses, both ordinary: `load = import_module` (assignment, not an
+import alias) and `import_module(".adapters.x", "ui_servo")` (package as the
+second *positional* argument, which the resolver ignored). Alias tracking is now
+a fixed point over assignments, so chains do not help either.
+
+### Minors
+
+- The startup error told operators to run a module that no longer has an entry
+  point.
+- `Promoted`'s fields were public, so "cannot be constructed without passing
+  `load`" was a comment rather than a fact. Private now, with accessors.
+- Both visual-identity guards were denylists; both are allowlists now, and both
+  were mutation-tested. The CSS one initially still missed rules inside `@media`,
+  because it split each rule at the *first* `{` and the at-rule prelude claimed
+  it — found by trying it rather than by reading it.
+- `release_mode_serves_the_verified_copy_not_the_file` called the accessor twice
+  and compared the results, which tests `BTreeMap::get`. It now edits the file
+  out from under a running state and asserts release keeps serving the verified
+  copy while dev notices immediately.
+- Binary-freshness was mtime-only; a format fingerprint is now checked inside the
+  binary as a floor under the heuristic.
+- Python accepted `.` and `..` as part names, which Rust rejects. Aligned.
+
+### The demo claimed a human decision it could not evidence
+
+The reviewer's last minor is the one worth the most. `demo/README.md` said the
+promoted hero was "a human pick", and nothing in the committed evidence supports
+that: a tie plus an escalation looks identical whether a person deliberated or a
+script promoted rank one.
+
+Worse, it was not accurate. **I** made that choice — the operator set the
+session's goal and never saw the comparison. `demo/round-4/decision.md` now
+records who decided, on what grounds, with what confidence, and explicitly states
+who did *not* decide. The README points at it.
+
+This is the third correction to one sentence: "chosen by the panel" (false),
+"a human pick" (overstated), now attributed precisely. Who chose the artefact is
+the governance claim of the whole method, so it is worth getting exactly right
+rather than approximately.

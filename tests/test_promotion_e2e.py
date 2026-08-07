@@ -64,6 +64,25 @@ def test_the_binary_under_test_is_not_stale() -> None:
     )
 
 
+def test_the_binary_contains_the_format_it_is_being_tested_against() -> None:
+    """A timestamp is evidence about a file, not about its contents.
+
+    `touch` on an obsolete binary satisfies the staleness check above while the
+    code inside it is any age at all. This looks for the one string that must
+    move whenever the cross-language format moves — the digest version tag — so
+    a binary built before the current format cannot quietly certify it.
+
+    Not a substitute for building; a floor under the mtime heuristic.
+    """
+    from ui_servo.control.promote import DIGEST_VERSION
+
+    blob = BINARY.read_bytes()
+    assert DIGEST_VERSION.encode() in blob, (
+        f"the binary does not contain {DIGEST_VERSION!r}, so it was built against a "
+        "different provenance format than this test suite. Run `cargo build` in site/."
+    )
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))

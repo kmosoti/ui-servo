@@ -69,11 +69,16 @@ card, twice, unanimously, on a named anti-reference. It never separated the two
 editorial openings — that comparison had a single eligible critic (§6) and the
 protocol refuses a verdict on one vote.
 
-The promoted hero is therefore **a human pick between two co-leaders**, not a
-panel choice, and the escalation is exactly the mechanism that put the decision
-there. That is the design working: the loop is meant to hand a human the calls it
-cannot make on the evidence it has, rather than manufacture a ranking to look
-decisive.
+The promoted hero is therefore **not a panel choice**. The escalation moved the
+decision out of the panel, and the agent running the session took it from there —
+recorded, with its grounds and its confidence, in
+[`round-4/decision.md`](round-4/decision.md). That file exists because the
+evidence cannot establish the claim on its own: a tie plus an escalation looks
+identical whether a person deliberated or a script promoted rank one, so who
+decided has to be written down or not asserted.
+
+That is the design working. The loop is meant to stop at the calls it cannot make
+on the evidence it has, rather than manufacture a ranking to look decisive.
 
 ## 3. What the critics said
 
@@ -122,7 +127,7 @@ exposed a place where the instrument and the artefact had drifted apart".
 uv run python -m ui_servo.cli.promote --pick demo/candidates/hero.claude.0.html \
   --part hero --round 4
 # promoted hero from round 4 -> site/promoted/hero.html
-#   sha256 80ae20494ba67aa96a7bba3640639481034b22e89c1903ba741943ea8aae9900
+#   sha256 bfbef5ca142423a4219653d89057f7d556d4526c02b0abe6d45884ff736d7f69
 ```
 
 Promotion re-runs the class-0 sanitiser over the pick, strips the candidate's own
@@ -130,8 +135,14 @@ Promotion re-runs the class-0 sanitiser over the pick, strips the candidate's ow
 and writes the result under a provenance comment:
 
 ```html
-<!-- ui-servo: gated round=4 sha256=80ae2049… -->
+<!-- ui-servo: gated round=4 sha256=bfbef5ca… -->
 ```
+
+The hash covers the part, the round and the body together, not the body alone.
+That distinction was a review finding: with a body-only digest, `round=4` could be
+edited to `round=99` and the file still loaded, cached and served — attributing
+itself to a round that never produced it. A comment cannot hash itself, so the
+values it asserts are bound into the preimage instead.
 
 The Rust server verifies that comment **and** the hash — at boot for every
 promoted file in release mode, so a tampered pick fails the deploy rather than
@@ -142,6 +153,8 @@ the first visitor. Proof it is not decoration:
 | Serve the promoted hero | `200`, wrapped in a fresh `data-span-id` |
 | Append one line to the file by hand | `500` on `/fragments/promoted/hero`; the home page refuses rather than falling back, and the smuggled markup never renders |
 | Drop in a fragment with no provenance | refused — "it was never gated" |
+| Edit `round=4` to `round=99`, leaving the body alone | refused — the round is inside the hash |
+| Reach the file as a static asset, in any encoding | 404; promoted picks are outside the served root, and the server will not start if they are inside it |
 | Start in release mode with either of the above | the process does not start |
 
 ## 6. Staffing the panel
@@ -175,12 +188,15 @@ one.
 
 ![The home page after promotion](site-home.png)
 
-The hero at the top of that page is `hero.claude.0`: a human pick from the two
+The hero at the top of that page is `hero.claude.0`, chosen from the two
 candidates the panel left standing (§2), gated at promotion, and served with its
 provenance verified at boot. Below it, an htmx fragment swap and a Rust→WASM
 island, both instrumented by the same probe that measured the candidates.
 
-An earlier version of this line said the hero was "chosen by the panel". It was
-not, and the distinction is the whole governance claim of the method: the panel
-removed a candidate on evidence, and a person chose between the ones it could not
-separate.
+Two corrections have been applied to this line. It first said the hero was
+"chosen by the panel", which the escalation contradicts. It then said "a human
+pick", which overstated the human involvement: the operator set the session's
+goal and never saw this comparison. The agent chose, and
+[`round-4/decision.md`](round-4/decision.md) says so with its reasoning — that
+being the whole governance claim of the method, it is worth getting exactly
+right rather than approximately.

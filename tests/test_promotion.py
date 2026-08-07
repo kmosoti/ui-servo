@@ -105,7 +105,7 @@ class TestPromotion:
         # The body, minus the candidate's own span id — see
         # test_the_candidates_span_id_does_not_survive_promotion.
         assert strip_span_ids(GOOD) in written
-        assert promotion.digest == sha256(strip_span_ids(GOOD).strip().encode()).hexdigest()
+        assert promotion.digest == body_digest(strip_span_ids(GOOD), part="hero", round_id="1")
 
     def test_a_pick_that_fails_the_gate_is_not_written_at_all(self, tmp_path: Path) -> None:
         with pytest.raises(PromotionRefused, match="hero-shout"):
@@ -121,9 +121,29 @@ class TestPromotion:
 
     def test_the_digest_covers_the_body_and_not_the_comment(self) -> None:
         """The comment cannot vouch for itself, so the hash starts after it."""
-        rendered = render_promoted_file(GOOD, round_id="7")
+        rendered = render_promoted_file(GOOD, part="hero", round_id="7")
         header, _, body = rendered.partition("\n")
-        assert body_digest(body) in header
+        assert body_digest(body, part="hero", round_id="7") in header
+
+    @pytest.mark.parametrize(
+        ("part", "round_id"),
+        [("hero", "4"), ("hero", "99"), ("footer", "4")],
+    )
+    def test_the_digest_binds_the_part_and_the_round(self, part: str, round_id: str) -> None:
+        """What the comment *asserts* is covered, not only the markup below it.
+
+        With a body-only digest, editing `round=4` to `round=99` left the hash
+        valid: the file loaded, cached at boot, and served a page attributing
+        itself to a round that never produced it. Pinning the comment to a
+        "canonical form" did not help, because that form was derived from the
+        parsed values — it could catch a reordered field and never a changed one.
+        """
+        digests = {
+            body_digest(GOOD, part=p, round_id=r)
+            for p, r in [("hero", "4"), ("hero", "99"), ("footer", "4")]
+        }
+        assert len(digests) == 3, "part and round do not both affect the digest"
+        assert body_digest(GOOD, part=part, round_id=round_id) in digests
 
     def test_the_candidates_span_id_does_not_survive_promotion(self, tmp_path: Path) -> None:
         """The join key belongs to the round, not to the site.
@@ -141,7 +161,7 @@ class TestPromotion:
         assert 'class="my-3xl"' in written, "stripping the id must not disturb other attributes"
         # The hash covers the stripped body, so the server still verifies it.
         _, _, body = written.partition("\n")
-        assert body_digest(body) == promotion.digest
+        assert body_digest(body, part="hero", round_id="4") == promotion.digest
 
     @pytest.mark.parametrize(
         "spelling",
@@ -246,10 +266,15 @@ class TestServerInterop:
     """
 
     def test_the_rust_reader_and_the_python_writer_agree_on_what_is_hashed(self) -> None:
-        rendered = render_promoted_file(GOOD, round_id="1")
-        # What promoted.rs does: drop the first line, trim, hash.
+        rendered = render_promoted_file(GOOD, part="hero", round_id="1")
+        # What promoted.rs does: drop the first line, trim, hash the same
+        # version-tagged preimage.
         _, _, rust_body = rendered.partition("\n")
-        assert sha256(rust_body.strip().encode()).hexdigest() == body_digest(GOOD)
+        preimage = "\n".join(("ui-servo/1", "hero", "1", rust_body.strip()))
+        assert (
+            sha256(preimage.encode()).hexdigest()
+            == body_digest(GOOD, part="hero", round_id="1")
+        )
 
     def test_the_live_promoted_hero_still_verifies(self) -> None:
         """The committed pick is not stale relative to its own provenance."""
@@ -259,7 +284,10 @@ class TestServerInterop:
         raw = promoted.read_text()
         header, _, body = raw.partition("\n")
         recorded = header.split("sha256=")[1].split()[0].rstrip("->").strip()
-        assert body_digest(body) == recorded, "the promoted hero was edited after promotion"
+        round_id = header.split("round=")[1].split()[0]
+        assert body_digest(body, part="hero", round_id=round_id) == recorded, (
+            "the promoted hero was edited after promotion"
+        )
 
 
 def test_the_contract_the_demo_round_ran_against_still_parses() -> None:

@@ -123,6 +123,12 @@ mod tests {
     fn the_frame_imposes_no_visual_chrome() {
         let framed = frame("t", "t", html! { "body" }).into_string();
         let root = framed.split_once('>').unwrap().0;
+        // Inline style is chrome that carries no class at all, so a class-only
+        // check would wave it through.
+        assert!(
+            !root.contains("style="),
+            "the frame sets an inline style, which no gate reads: {root}"
+        );
         let classes = root
             .split_once("class=\"")
             .map(|(_, rest)| rest.split_once('"').unwrap().0)
@@ -130,9 +136,14 @@ mod tests {
         // An allowlist. A denylist of seven class names only stops the seven
         // somebody thought of, and the whole failure being guarded against is
         // chrome nobody noticed arriving.
+        // `my-` prefix *and* a known scale step: `my-card` starts with `my-`
+        // and is not rhythm.
+        const RHYTHM: [&str; 8] = [
+            "my-3xs", "my-2xs", "my-xs", "my-sm", "my-md", "my-lg", "my-xl", "my-3xl",
+        ];
         for class in classes.split_whitespace() {
             assert!(
-                class.starts_with("my-"),
+                RHYTHM.contains(&class) || class == "my-2xl",
                 "the frame applies {class:?} to every fragment, including ones judged without \
                  it. Only vertical rhythm (my-*) belongs here: padding, borders, backgrounds \
                  and type are the fragment's own business, where the class-0 gate can read \

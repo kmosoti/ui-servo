@@ -73,13 +73,22 @@ impl AppState {
         // Structural, so verified rather than trusted: if the promotion
         // directory has been configured back inside the served root, every
         // provenance guarantee in this binary is one static GET away from
-        // irrelevant. Compared after canonicalisation, because `assets/../site`
-        // and `site` are the same directory to a file server.
+        // irrelevant.
         let promoted_dir = promoted_root.join(promoted::PROMOTED_DIR);
-        let real = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        if real(&promoted_dir).starts_with(real(&assets_dir)) {
+        if resolve(&promoted_dir).starts_with(resolve(&assets_dir)) {
             return Err(StartupError::PromotedInsideAssets {
                 promoted: promoted_dir,
+                assets: assets_dir,
+            });
+        }
+        // A link inside the served root can reach back out of it. `ServeDir`
+        // follows symlinks, so `assets/picks -> ../promoted` reinstates exactly
+        // the hole the separation exists to close, and passes a comparison of
+        // the two roots because the roots really are disjoint.
+        if let Some(escape) = symlink_escaping(&assets_dir) {
+            return Err(StartupError::AssetSymlinkEscapes {
+                link: escape.0,
+                target: escape.1,
                 assets: assets_dir,
             });
         }
@@ -238,6 +247,78 @@ fn verify_promotions(root: &Path) -> Result<BTreeMap<String, Promoted>, StartupE
         verified.insert(part.to_owned(), promotion);
     }
     Ok(verified)
+}
+
+/// An absolute, symlink-free path, for paths that may not exist yet.
+///
+/// `canonicalize` fails on a missing path, and the first version of this check
+/// fell back to the path as written. That was the bug: with a *relative*
+/// `UI_SERVO_PROMOTED_ROOT` and no promotion directory created yet, the promoted
+/// side stayed relative while the asset side resolved to absolute, the two could
+/// not possibly share a prefix, and the overlap check passed. The first
+/// promotion then created the directory *inside* the served root, and the raw
+/// file was a plain GET away. Confirmed against the running binary.
+///
+/// So: make it absolute first, then canonicalise the nearest existing ancestor
+/// and re-append the rest.
+fn resolve(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+
+    let mut missing = Vec::new();
+    let mut existing = absolute.as_path();
+    loop {
+        if let Ok(canonical) = existing.canonicalize() {
+            let mut resolved = canonical;
+            for part in missing.iter().rev() {
+                resolved.push(part);
+            }
+            return resolved;
+        }
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                missing.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return absolute,
+        }
+    }
+}
+
+/// The first symlink under `assets_dir` whose target leaves it, if any.
+///
+/// Walked at boot rather than defended per-request: `ServeDir` resolves links
+/// itself, so by the time a request arrives the decision has been made.
+fn symlink_escaping(assets_dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let root = resolve(assets_dir);
+    let mut stack = vec![assets_dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_link = std::fs::symlink_metadata(&path)
+                .map(|meta| meta.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_link {
+                let target = resolve(&path);
+                if !target.starts_with(&root) {
+                    return Some((path, target));
+                }
+                continue;
+            }
+            if path.is_dir() {
+                stack.push(path);
+            }
+        }
+    }
+    None
 }
 
 fn read(path: &Path) -> Result<String, StartupError> {
@@ -429,9 +510,19 @@ mod tests {
         // friends are the same hole with a longer selector.
         let mut checked = 0;
         for rule in css.split('}') {
-            let Some((selector, block)) = rule.split_once('{') else {
+            // `rsplit_once`, not `split_once`: in `@media (…) { [data-fragment] { … `
+            // the first `{` belongs to the at-rule, so splitting there puts the
+            // real selector inside the *block* half and the rule is skipped as
+            // unrecognisable — which is how chrome inside a media query walked
+            // straight past the first version of this guard.
+            let Some((selector, block)) = rule.rsplit_once('{') else {
                 continue;
             };
+            // The selector of a rule nested in `@media`/`@supports` arrives with
+            // the at-rule prelude still attached to its front; take the part
+            // after the last `{` boundary so those rules are checked too rather
+            // than skipped for having an unrecognisable selector.
+            let selector = selector.rsplit('{').next().unwrap_or(selector).trim();
             if !selector.contains("[data-fragment") && !selector.contains("[data-span-id") {
                 continue;
             }
@@ -445,9 +536,13 @@ mod tests {
                     continue;
                 };
                 let property = property.trim();
-                if property.is_empty() || property.starts_with("--") {
+                if property.is_empty() {
                     continue;
                 }
+                // Custom properties are *not* skipped: `--card-bg` set on a
+                // sensor selector is inherited by everything inside it, which is
+                // visual identity taking the scenic route.
+
                 assert!(
                     matches!(
                         property,
@@ -526,6 +621,62 @@ mod tests {
         }
     }
 
+    /// The overlap check must hold for a promotion directory that does not exist
+    /// yet — which is every repo before its first promotion.
+    ///
+    /// `canonicalize` fails on a missing path. The first version fell back to
+    /// the path as written, so a relative promoted root stayed relative while
+    /// the asset root resolved to absolute; the two could not share a prefix,
+    /// the check passed, and the first promotion created the directory inside
+    /// the served root.
+    #[test]
+    fn a_relative_root_whose_promotion_directory_is_missing_is_still_checked() {
+        let dir = std::env::temp_dir().join(format!("ui-servo-rel-{}", crate::span::new_span_id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        for name in [TOKENS_CSS, MOTION_JSON] {
+            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
+        }
+        // No `promoted/` yet, and both roots given relative to `dir`.
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let outcome = AppState::load(
+            PathBuf::from("assets"),
+            PathBuf::from("assets"),
+            false,
+            "b".into(),
+            "t".into(),
+        );
+        std::env::set_current_dir(previous).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            matches!(outcome, Err(StartupError::PromotedInsideAssets { .. })),
+            "overlap went undetected because the promotion directory did not exist yet: \
+             {outcome:?}"
+        );
+    }
+
+    /// A link inside the served root defeats disjoint roots entirely.
+    #[test]
+    fn a_symlink_out_of_the_asset_root_is_refused() {
+        let dir = std::env::temp_dir().join(format!("ui-servo-link-{}", crate::span::new_span_id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
+        for name in [TOKENS_CSS, MOTION_JSON] {
+            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
+        }
+        std::os::unix::fs::symlink("../promoted", dir.join("assets").join("picks")).unwrap();
+
+        let outcome =
+            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert!(
+            matches!(outcome, Err(StartupError::AssetSymlinkEscapes { .. })),
+            "a symlink reaching out of the served root was accepted: {outcome:?}"
+        );
+    }
+
     /// A release server must not come up carrying a fragment that cannot prove
     /// it was gated. If it does, the deploy reports success and the breakage
     /// waits for a visitor.
@@ -574,18 +725,55 @@ mod tests {
     /// serves — that would be an ungated edit taking effect without a restart.
     #[test]
     fn release_mode_serves_the_verified_copy_not_the_file() {
-        let state = AppState::load(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"),
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
-            false,
-            "b".into(),
-            "t".into(),
+        // Build a throwaway site so the file can actually be tampered with. The
+        // previous version of this test called `promoted()` twice on the real
+        // repo and compared the results, which is a test of `BTreeMap::get` --
+        // it would have passed just as happily with no cache at all.
+        let dir = std::env::temp_dir().join(format!("ui-servo-cache-{}", crate::span::new_span_id()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
+        for name in [TOKENS_CSS, MOTION_JSON] {
+            std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
+        }
+        let promoted_file = dir.join(promoted::PROMOTED_DIR).join("hero.html");
+        let honest = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(promoted::PROMOTED_DIR).join("hero.html"),
         )
-        .expect("the committed assets are valid");
-        let first = state.promoted("hero").expect("hero is promoted");
-        assert_eq!(first, state.promoted("hero").unwrap());
+        .expect("the repo has a promoted hero");
+        std::fs::write(&promoted_file, &honest).unwrap();
+
+        let release =
+            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into()).unwrap();
+        let dev =
+            AppState::load(dir.join("assets"), dir.clone(), true, "b".into(), "t".into()).unwrap();
+        let before = release.promoted("hero").expect("hero is promoted");
+
+        // Now edit the file out from under both running servers.
+        std::fs::write(&promoted_file, format!("{honest}<p>smuggled</p>\n")).unwrap();
+
+        let after_release = release.promoted("hero");
+        let after_dev = dev.promoted("hero");
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Release keeps serving what it verified at boot: the edit is not
+        // refused at request time, it is simply not visible, which is the point
+        // of verifying once.
+        assert_eq!(
+            after_release.as_ref().ok(),
+            Some(&before),
+            "release served post-boot disk content instead of the copy it verified"
+        );
         assert!(
-            !first.markup().contains("data-span-id"),
+            !after_release.unwrap().markup().contains("smuggled"),
+            "an ungated edit reached a release response"
+        );
+        // Dev reads through, so the same edit is caught immediately.
+        assert!(
+            matches!(after_dev, Err(PromotionError::HashMismatch(..))),
+            "dev did not notice the file changing: {after_dev:?}"
+        );
+        assert!(
+            !before.markup().contains("data-span-id"),
             "the promoted body kept a candidate span id; live evidence would file under it"
         );
     }

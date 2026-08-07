@@ -41,14 +41,22 @@ holes: a `round_id` containing a newline closes the comment and appends markup
 that the recorded hash still vouches for -- the sanitiser ran before that text
 existed -- and a `part` containing `..` or a slash escapes the fragments
 directory in both the writer and the reader.
+
+``.`` and ``..`` match the character class and are excluded separately: they are
+legal-looking tokens that name a directory rather than a file, and the Rust
+reader rejects them. A writer that happily reports "promoted" for a path the
+server will never load is worse than one that refuses.
 """
+
+_RESERVED_TOKENS: Final[frozenset[str]] = frozenset({".", ".."})
 
 
 def _checked(value: str, *, field: str) -> str:
-    if not _SAFE_TOKEN.match(value):
+    if not _SAFE_TOKEN.match(value) or value in _RESERVED_TOKENS:
         raise PromotionRefused(
-            f"{field} must be 1-64 characters of [A-Za-z0-9._-]; got {value!r}. "
-            "It becomes both a path component and part of the provenance comment."
+            f"{field} must be 1-64 characters of [A-Za-z0-9._-], and not '.' or '..'; "
+            f"got {value!r}. It becomes both a path component and part of the "
+            "provenance comment."
         )
     return value
 
@@ -154,20 +162,39 @@ class Promotion:
     digest: str
 
 
-def body_digest(markup: str) -> str:
-    """Hash of the markup the comment will vouch for.
+DIGEST_VERSION: Final[str] = "ui-servo/1"
+"""Format tag in the hash preimage, so a future change to what is covered cannot
+be mistaken for tampering (or, worse, tampering mistaken for an old format)."""
 
-    Trimmed before hashing so that the Rust reader, which trims what it reads,
-    computes the same number. A whitespace-only difference between writer and
-    reader would present as a forged file.
+
+def body_digest(markup: str, *, part: str, round_id: str) -> str:
+    """Hash of everything the provenance comment asserts, not just the markup.
+
+    Covering the body alone was not enough, and the gap was not theoretical: the
+    comment says *which round produced this*, and with a body-only digest that
+    claim was freely editable. Changing `round=4` to `round=99` left the body
+    hash valid, so the file loaded, cached at boot, and served a page attributing
+    itself to a round that never made it. Verified against the running binary.
+
+    A comment cannot hash itself, so the fix is not to cover the comment but to
+    bind its values into the preimage: part and round now change the digest.
+    Editing either produces a mismatch, which is the same refusal an edited body
+    already got.
+
+    Newline-separated with a version tag, and every field is a `_checked` token,
+    so no field can contain a separator and shift the boundary between two
+    others.
     """
-    return sha256(markup.strip().encode("utf-8")).hexdigest()
+    preimage = "\n".join((DIGEST_VERSION, part, round_id, markup.strip()))
+    return sha256(preimage.encode("utf-8")).hexdigest()
 
 
-def render_promoted_file(markup: str, *, round_id: str) -> str:
+def render_promoted_file(markup: str, *, part: str, round_id: str) -> str:
+    part = _checked(part, field="part")
     round_id = _checked(round_id, field="round")
     body = markup.strip()
-    header = PROVENANCE_TEMPLATE.format(round=round_id, digest=body_digest(body))
+    digest = body_digest(body, part=part, round_id=round_id)
+    header = PROVENANCE_TEMPLATE.format(round=round_id, digest=digest)
     return f"{header}\n{body}\n"
 
 
@@ -193,5 +220,12 @@ def promote(
     path = fragments_dir / f"{part}.html"
     # Strip after the gate, so what the sanitiser approved is what gets hashed.
     body = strip_span_ids(result.cleaned_html or markup).strip()
-    path.write_text(render_promoted_file(body, round_id=round_id), encoding="utf-8")
-    return Promotion(part=part, round_id=round_id, path=path, digest=body_digest(body))
+    path.write_text(
+        render_promoted_file(body, part=part, round_id=round_id), encoding="utf-8"
+    )
+    return Promotion(
+        part=part,
+        round_id=round_id,
+        path=path,
+        digest=body_digest(body, part=part, round_id=round_id),
+    )

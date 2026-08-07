@@ -144,7 +144,7 @@ fn parse_provenance(line: &str) -> Option<(String, String)> {
         .strip_prefix(PROVENANCE_HEAD)?
         .strip_suffix(PROVENANCE_TAIL)?;
     let (round, sha) = inner.split_once(PROVENANCE_MID)?;
-    (!round.is_empty() && !sha.is_empty()).then(|| (round.to_owned(), sha.to_owned()))
+    (is_token(round) && is_digest(sha)).then(|| (round.to_owned(), sha.to_owned()))
 }
 
 /// The body a hash covers: everything after the provenance line. The comment
@@ -157,10 +157,56 @@ fn hashed_body(markup: &str) -> &str {
     }
 }
 
-pub fn sha256_of(body: &str) -> String {
+/// Format tag in the hash preimage. Mirrors `DIGEST_VERSION` in
+/// `ui_servo/control/promote.py`; if one side changes it, every file stops
+/// verifying loudly rather than one side silently accepting the other's.
+const DIGEST_VERSION: &str = "ui-servo/1";
+
+/// The digest over everything the provenance comment asserts.
+///
+/// Body-only was not enough. The comment claims *which round produced this*, and
+/// with a body-only hash that claim was editable at will: `round=4` -> `round=99`
+/// left the body hash valid, so the file loaded, cached at boot, and served a
+/// page attributing itself to a round that never produced it. Pinning the
+/// comment to a "canonical form" did not help either, because the canonical form
+/// was computed *from the parsed values* — it could detect a reordered field and
+/// never a changed one. Circular, and it took an adversarial reviewer to say so.
+///
+/// So the values are bound into the preimage instead. Newline-separated with a
+/// version tag; every field is a validated token, so none can contain a
+/// separator and shift the boundary between two others.
+pub fn sha256_of(body: &str, part: &str, round: &str) -> String {
     let mut hasher = Sha256::new();
+    hasher.update(DIGEST_VERSION.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(part.as_bytes());
+    hasher.update(b"\n");
+    hasher.update(round.as_bytes());
+    hasher.update(b"\n");
     hasher.update(body.trim().as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+/// The writer's grammar (`_SAFE_TOKEN` in `ui_servo/control/promote.py`), applied
+/// on the reading side too.
+///
+/// Without it this reader accepted any non-empty round — Unicode, punctuation,
+/// arbitrary length — so a file could claim provenance the promoter is incapable
+/// of writing. Two implementations of one format have to agree about what the
+/// format *is*, or the stricter one is decorative.
+fn is_token(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// A sha256 as the writer spells it: 64 lowercase hex digits.
+fn is_digest(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
 }
 
 /// Load a promoted fragment, verifying it was gated and unedited since.
@@ -187,7 +233,7 @@ pub fn load(root: &Path, part: &str) -> Result<Promoted, PromotionError> {
             ));
         }
     };
-    let actual = sha256_of(hashed_body(&raw));
+    let actual = sha256_of(hashed_body(&raw), part, &round);
     if actual != recorded {
         return Err(PromotionError::HashMismatch(
             part.to_owned(),
@@ -276,11 +322,66 @@ mod tests {
         base
     }
 
-    fn promoted_file(body: &str, round: &str) -> String {
+    /// The file the promoter would write for this part, round and body.
+    fn promoted_file_for(part: &str, body: &str, round: &str) -> String {
         format!(
             "<!-- ui-servo: gated round={round} sha256={} -->\n{body}",
-            sha256_of(body)
+            sha256_of(body, part, round)
         )
+    }
+
+    fn promoted_file(body: &str, round: &str) -> String {
+        promoted_file_for("hero", body, round)
+    }
+
+    /// The digest binds the metadata, so editing it is an edit like any other.
+    ///
+    /// This is the case a "canonical form" check could never catch: the
+    /// canonical form was derived from the parsed values, so a changed value
+    /// simply produced a different, equally canonical line.
+    #[test]
+    fn a_doctored_round_is_refused() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        let honest = promoted_file(body, "4");
+        write(&root, "hero", &honest.replace("round=4 ", "round=99 "));
+
+        assert!(
+            matches!(load(&root, "hero"), Err(PromotionError::HashMismatch(..))),
+            "a promotion claiming a round it did not come from was accepted"
+        );
+    }
+
+    /// The same body promoted as a different part is a different file.
+    #[test]
+    fn a_pick_moved_to_another_part_is_refused() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        write(&root, "footer", &promoted_file_for("hero", body, "4"));
+        assert!(matches!(
+            load(&root, "footer"),
+            Err(PromotionError::HashMismatch(..))
+        ));
+    }
+
+    /// A provenance line the promoter could not have written is not provenance.
+    #[test]
+    fn a_round_outside_the_writers_grammar_is_refused() {
+        let root = temp();
+        let body = "<p class=\"text-md\">picked</p>";
+        for round in ["a round", "røund", &"x".repeat(65), "..", ""] {
+            let digest = sha256_of(body, "hero", round);
+            write(
+                &root,
+                "hero",
+                &format!("<!-- ui-servo: gated round={round} sha256={digest} -->\n{body}"),
+            );
+            let outcome = load(&root, "hero");
+            assert!(
+                matches!(outcome, Err(PromotionError::ForgedProvenance(..))),
+                "round {round:?} was accepted: {outcome:?}"
+            );
+        }
     }
 
     #[test]

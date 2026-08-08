@@ -22,8 +22,8 @@ use maud::{Markup, html};
 mod colophon;
 mod constellation;
 mod dispatch;
-pub mod promoted;
 mod project_card;
+pub mod promoted;
 mod reading_log;
 
 /// Every fragment the site can serve, in the order they appear in the docs.

@@ -220,7 +220,10 @@ fn is_token(value: &str) -> bool {
 
 /// A sha256 as the writer spells it: 64 lowercase hex digits.
 fn is_digest(value: &str) -> bool {
-    value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+    value.len() == 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
 }
 
 /// Load a promoted fragment, verifying it was gated and unedited since.
@@ -388,11 +391,11 @@ mod tests {
         let body = "<p class=\"text-md\">picked</p>";
         let honest = sha256_of(body, "hero", "4");
         for bad in [
-            honest[..63].to_owned(),                       // too short
-            format!("{honest}0"),                          // too long
-            honest.to_uppercase(),                         // the writer emits lowercase
-            honest.replace('a', "g"),                      // not hex
-            "0".repeat(64),                                // well-formed, wrong
+            honest[..63].to_owned(),  // too short
+            format!("{honest}0"),     // too long
+            honest.to_uppercase(),    // the writer emits lowercase
+            honest.replace('a', "g"), // not hex
+            "0".repeat(64),           // well-formed, wrong
         ] {
             write(
                 &root,
@@ -448,7 +451,11 @@ mod tests {
             load(&root, "hero").unwrap_err(),
             PromotionError::NotPromoted("hero".into())
         );
-        assert!(render_or_placeholder(|part| load(&root, part), "hero").unwrap().is_none());
+        assert!(
+            render_or_placeholder(|part| load(&root, part), "hero")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

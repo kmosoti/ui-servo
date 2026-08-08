@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.97"
 description = "The product skeleton the ui-servo control loop steers: SSR pages, htmx fragments, sensor-ready markup."
 publish = false
+# Two binaries, so a bare `cargo run` would otherwise be an error. The server is
+# what `cargo run` has always meant here, and what site/README.md and tools/specs
+# tell people to type; the exporter is opt-in via `--bin export`.
+default-run = "ui-servo-site"
 
 # U7 grows a wasm island crate at site/islands/. Excluding it here keeps that
 # crate independently buildable by wasm-pack without dragging a wasm target
@@ -12,6 +16,24 @@ publish = false
 [workspace]
 members = ["."]
 exclude = ["islands"]
+
+# The site is a library with two binaries over it. The library is not a
+# convenience: `export` renders the static site by calling the same maud page
+# functions the server calls, through the same route manifest, and the only way
+# for two binaries to share those is for them to live in neither.
+[lib]
+name = "ui_servo_site"
+path = "src/lib.rs"
+
+# Named explicitly because tests/test_island.py launches
+# `site/target/debug/ui-servo-site` directly rather than through `cargo run`.
+[[bin]]
+name = "ui-servo-site"
+path = "src/main.rs"
+
+[[bin]]
+name = "export"
+path = "src/bin/export.rs"
 
 [dependencies]
 axum = "0.8"

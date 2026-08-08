@@ -40,6 +40,24 @@ struct Inner {
 impl AppState {
     /// Read the environment and the generated artefacts, or refuse to start.
     pub fn from_env() -> Result<Self, StartupError> {
+        let dev = std::env::var("UI_SERVO_DEV").is_ok_and(|value| value == "1");
+        Self::from_env_with_dev(dev)
+    }
+
+    /// The state the static exporter renders with.
+    ///
+    /// Identical to [`AppState::from_env`] but for dev, which is forced *off*
+    /// rather than read. The export is a build step, and a build step whose
+    /// output depends on an environment variable somebody exported three
+    /// terminals ago is a build step that publishes the probe to mosoti.dev and
+    /// beacons from a stranger's browser at a host with no ingest behind it.
+    /// It also means the export verifies promotions at boot exactly as a
+    /// release server does: an ungated hero fails the build, not the visitor.
+    pub fn for_export() -> Result<Self, StartupError> {
+        Self::from_env_with_dev(false)
+    }
+
+    fn from_env_with_dev(dev: bool) -> Result<Self, StartupError> {
         let assets_dir = match std::env::var_os("UI_SERVO_ASSETS") {
             Some(dir) => PathBuf::from(dir),
             None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"),
@@ -48,7 +66,6 @@ impl AppState {
             Some(dir) => PathBuf::from(dir),
             None => PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         };
-        let dev = std::env::var("UI_SERVO_DEV").is_ok_and(|value| value == "1");
         let beacon_url = std::env::var("UI_SERVO_BEACON")
             .unwrap_or_else(|_| "http://localhost:8700/beacon".to_owned());
         let turn_id =
@@ -679,7 +696,13 @@ mod tests {
 
         // The real layout is fine, in both modes.
         for dev in [true, false] {
-            let ok = AppState::load(site.join("assets"), site.clone(), dev, "b".into(), "t".into());
+            let ok = AppState::load(
+                site.join("assets"),
+                site.clone(),
+                dev,
+                "b".into(),
+                "t".into(),
+            );
             assert!(ok.is_ok(), "the committed layout was refused: {ok:?}");
         }
     }
@@ -710,15 +733,21 @@ mod tests {
         assert!(resolved.ends_with("assets/promoted/not-created-yet"));
 
         // And the comparison it exists to serve holds: same prefix, so nested.
-        assert!(resolve(&PathBuf::from("assets/promoted")).starts_with(resolve(&PathBuf::from("assets"))));
+        assert!(
+            resolve(&PathBuf::from("assets/promoted"))
+                .starts_with(resolve(&PathBuf::from("assets")))
+        );
         // …while genuinely disjoint roots stay disjoint.
-        assert!(!resolve(&PathBuf::from("promoted")).starts_with(resolve(&PathBuf::from("assets"))));
+        assert!(
+            !resolve(&PathBuf::from("promoted")).starts_with(resolve(&PathBuf::from("assets")))
+        );
     }
 
     /// A link inside the served root defeats disjoint roots entirely.
     #[test]
     fn a_symlink_out_of_the_asset_root_is_refused() {
-        let dir = std::env::temp_dir().join(format!("ui-servo-link-{}", crate::span::new_span_id()));
+        let dir =
+            std::env::temp_dir().join(format!("ui-servo-link-{}", crate::span::new_span_id()));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
         for name in [TOKENS_CSS, MOTION_JSON] {
@@ -733,8 +762,13 @@ mod tests {
         )
         .unwrap();
 
-        let outcome =
-            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
+        let outcome = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            false,
+            "b".into(),
+            "t".into(),
+        );
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(
@@ -752,7 +786,8 @@ mod tests {
     /// yet — and the first promotion then completed the exposure.
     #[test]
     fn a_symlink_to_a_target_that_does_not_exist_yet_is_refused() {
-        let dir = std::env::temp_dir().join(format!("ui-servo-dang-{}", crate::span::new_span_id()));
+        let dir =
+            std::env::temp_dir().join(format!("ui-servo-dang-{}", crate::span::new_span_id()));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         for name in [TOKENS_CSS, MOTION_JSON] {
             std::fs::copy(asset(name), dir.join("assets").join(name)).unwrap();
@@ -760,8 +795,13 @@ mod tests {
         // No `promoted/` yet: the target is dangling at boot.
         std::os::unix::fs::symlink("../promoted", dir.join("assets").join("fragments")).unwrap();
 
-        let outcome =
-            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
+        let outcome = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            false,
+            "b".into(),
+            "t".into(),
+        );
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(
@@ -775,7 +815,8 @@ mod tests {
     /// waits for a visitor.
     #[test]
     fn a_tampered_promotion_stops_the_server_from_starting() {
-        let dir = std::env::temp_dir().join(format!("ui-servo-boot-{}", crate::span::new_span_id()));
+        let dir =
+            std::env::temp_dir().join(format!("ui-servo-boot-{}", crate::span::new_span_id()));
         std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         for name in [TOKENS_CSS, MOTION_JSON] {
@@ -787,11 +828,22 @@ mod tests {
         )
         .unwrap();
 
-        let release =
-            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into());
+        let release = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            false,
+            "b".into(),
+            "t".into(),
+        );
         // Dev is deliberately permissive: the pick is under active edit, and the
         // per-request 500 is the feedback the author wants.
-        let dev = AppState::load(dir.join("assets"), dir.clone(), true, "b".into(), "t".into());
+        let dev = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            true,
+            "b".into(),
+            "t".into(),
+        );
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(
@@ -822,7 +874,8 @@ mod tests {
         // previous version of this test called `promoted()` twice on the real
         // repo and compared the results, which is a test of `BTreeMap::get` --
         // it would have passed just as happily with no cache at all.
-        let dir = std::env::temp_dir().join(format!("ui-servo-cache-{}", crate::span::new_span_id()));
+        let dir =
+            std::env::temp_dir().join(format!("ui-servo-cache-{}", crate::span::new_span_id()));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         std::fs::create_dir_all(dir.join(promoted::PROMOTED_DIR)).unwrap();
         for name in [TOKENS_CSS, MOTION_JSON] {
@@ -830,15 +883,29 @@ mod tests {
         }
         let promoted_file = dir.join(promoted::PROMOTED_DIR).join("hero.html");
         let honest = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(promoted::PROMOTED_DIR).join("hero.html"),
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(promoted::PROMOTED_DIR)
+                .join("hero.html"),
         )
         .expect("the repo has a promoted hero");
         std::fs::write(&promoted_file, &honest).unwrap();
 
-        let release =
-            AppState::load(dir.join("assets"), dir.clone(), false, "b".into(), "t".into()).unwrap();
-        let dev =
-            AppState::load(dir.join("assets"), dir.clone(), true, "b".into(), "t".into()).unwrap();
+        let release = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            false,
+            "b".into(),
+            "t".into(),
+        )
+        .unwrap();
+        let dev = AppState::load(
+            dir.join("assets"),
+            dir.clone(),
+            true,
+            "b".into(),
+            "t".into(),
+        )
+        .unwrap();
         let before = release.promoted("hero").expect("hero is promoted");
 
         // Now edit the file out from under both running servers.

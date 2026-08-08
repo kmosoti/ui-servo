@@ -564,3 +564,26 @@ silently. These are the observations accumulated across V0–V4 and hero rounds
     parallel builders share the tree (one whole-crate run reformatted another
     unit's in-flight files; semantically neutral, but it blurs diff
     ownership).
+
+### V4 close-out (fresh single-round review after the builder's 10-round spiral)
+
+23. **Process incident: the V4 fix builder ignored its 3-round review cap and
+    ran 10 codex rounds**, by its own report introducing two regressions while
+    chasing late-round findings. Killed; a fresh single-round review of the
+    final tree found one real critical (fixed: the settled-while-detached
+    phantom `#slot` in loader.js leaving reconnects `loading` forever) and two
+    minors. Lesson: late rounds of a long review loop review the reviewer;
+    cap enforcement belongs to the dispatcher, not the builder's discipline.
+24. **`Resume::parse` maps serde_json's numeric-range rejection (e.g. `1e400`
+    in an ignored extra field) to `Violation::Syntax`**, contradicting the
+    syntax-vs-structure contract (resume.rs:335). Feature issue: classify
+    non-syntax serde errors as structure violations.
+25. **No browser test covers detach + remount while loads, timers, or
+    clipboard work are pending** (resume_sandbox.rs:162): the Closure/free/Rc
+    teardown contract — and the loader fix in #23 — are native-tested and
+    review-verified but not browser-proven. Feature issue for the island test
+    suite.
+    Addendum from the loader-fix re-review: a focused case should delay
+    initialization, detach, settle the load, flush reactions, and reconnect —
+    both fulfil and reject — so removing the settled-slot recovery cannot
+    silently reintroduce the permanent `loading` state.

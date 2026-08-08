@@ -3,7 +3,7 @@ name = "ui-servo-islands"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
-description = "The site's one WASM island: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens."
+description = "The site's WASM islands: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens, and <resume-sandbox>, a structured-resume editor."
 publish = false
 
 # Its own workspace root. `site/Cargo.toml` excludes this directory precisely so
@@ -16,10 +16,28 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
+# The same templating engine `site/src` renders pages with, for the same
+# reason: `maud` escapes at every interpolation because that is the only thing
+# it can do with a `&str`. `<resume-sandbox>` renders visitor-supplied JSON
+# into HTML, so "the renderer cannot forget to escape" is the whole security
+# argument. Default features only — the axum integration is not wanted here.
+maud = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# One promise is awaited in this crate — `navigator.clipboard.writeText` — and
+# awaiting it is the difference between a bounded island and an unbounded one.
+# A `Closure` pair handed to `then2` has to outlive a promise whose settlement
+# nothing here controls, so an island torn down mid-write either drops closures
+# JS still holds (a throw inside a reaction) or leaks them to avoid that.
+# A spawned future owns itself, holds nothing but a `Weak`, and is freed by the
+# settlement — so a detached island is simply not there to upgrade.
+wasm-bindgen-futures = "0.4"
 
 [dependencies.web-sys]
 version = "0.3"
 features = [
+  "Blob",
+  "BlobPropertyBag",
   "CanvasRenderingContext2d",
   "CssStyleDeclaration",
   "CustomEvent",
@@ -29,9 +47,14 @@ features = [
   "Element",
   "Event",
   "EventTarget",
+  "HtmlAnchorElement",
   "HtmlCanvasElement",
   "HtmlElement",
+  "HtmlTextAreaElement",
+  "Navigator",
+  "Node",
   "PointerEvent",
+  "Url",
   "Window",
 ]
 

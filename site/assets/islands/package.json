@@ -1,7 +1,7 @@
 {
   "name": "ui-servo-islands",
   "type": "module",
-  "description": "The site's one WASM island: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens.",
+  "description": "The site's WASM islands: <ui-constellation>, a pointer-reactive project constellation drawn from contract tokens, and <resume-sandbox>, a structured-resume editor.",
   "version": "0.1.0",
   "files": [
     "ui_servo_islands_bg.wasm",

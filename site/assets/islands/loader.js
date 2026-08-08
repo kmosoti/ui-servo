@@ -1,9 +1,9 @@
-// loader.js — the JS half of the <ui-constellation> island.
+// loader.js — the JS half of the WASM islands.
 //
 // Hand-written, not generated: everything else in this directory is wasm-pack
 // output. Its job is small and deliberate.
 //
-//   1. Define the custom element the moment the module runs, so an element
+//   1. Define both custom elements the moment the module runs, so an element
 //      already in the document upgrades without waiting on a network fetch.
 //   2. Load the wasm *lazily*, on first connect. A page with no island pays
 //      nothing for this file beyond its own bytes, and an island swapped in by
@@ -15,10 +15,21 @@
 //      land, from two independent witnesses), and a Rust panic becomes
 //      `ui-servo:wasm-panic` from the hook installed below.
 //
+// Two elements, one module, one pattern. Both classes are defined here rather
+// than from inside the wasm, and for <resume-sandbox> that is load-bearing
+// rather than tidy: an element registered by the module cannot upgrade until
+// the module is up, so its connectedCallback would be downstream of the fetch
+// that callback exists to cause. Anything else that could notice the tag —
+// a querySelector at startup, a MutationObserver — is a worse connectedCallback
+// that misses either later swaps or shadow trees. Defining the class here costs
+// one exported function, mount_resume_sandbox, and gets the platform's own
+// answer to "when is this element on the page".
+//
 // Nothing here re-throws. One broken island must not take the rest of a swap
 // with it, and re-throwing would double-report through window.onerror.
 
 const TAG = 'ui-constellation';
+const SANDBOX_TAG = 'resume-sandbox';
 const WASM_URL = new URL('./ui_servo_islands.js', import.meta.url).href;
 const STACK_LIMIT = 800;
 
@@ -34,14 +45,18 @@ function describe(error) {
 
 // The convention from probe/README.md: bubbles, so the probe's document-level
 // listener sees it and resolves the nearest [data-span-id] ancestor itself.
-function reportCustomElementError(element, error, phase) {
+//
+// `tag` is a parameter rather than the constant it used to be: this file now
+// reports for two elements, and a sandbox's failed fetch labelled
+// `ui-constellation` would send whoever reads the beacon to the wrong file.
+function reportCustomElementError(element, error, phase, tag = TAG) {
   const { message, stack } = describe(error);
   try {
     element.dispatchEvent(
       new CustomEvent('ui-servo:ce-error', {
         bubbles: true,
         composed: true,
-        detail: { message, phase, tag: TAG, stack },
+        detail: { message, phase, tag, stack },
       }),
     );
   } catch {
@@ -70,6 +85,161 @@ function loadWasm() {
       });
   }
   return wasmPromise;
+}
+
+// ------------------------------------------------------- <resume-sandbox> ---
+//
+// The editor island. Everything it does is Rust: this class is the lifecycle
+// and nothing else — fetch on connect, mount, free on disconnect.
+
+class ResumeSandbox extends HTMLElement {
+  #island = null;
+  // The box a pending load's reaction reads this element out of, or null when
+  // no load is in flight for it. See connectedCallback.
+  #slot = null;
+
+  connectedCallback() {
+    // Connect is not first connect: htmx moves elements, which disconnects and
+    // reconnects them, and #teardown freed the last handle. Mounting again is
+    // cheap — the Rust side finds the furniture still in place and adopts it,
+    // so whatever was typed into the editor survives the move.
+    if (this.#island) {
+      return;
+    }
+    // A move is a disconnect and a connect, and disconnect wrote `detached`.
+    // The element is here, and `loading` is what that is called.
+    this.dataset.island = 'loading';
+    if (this.#slot) {
+      if (!this.#slot.settled) {
+        // A load is already in flight for this element and its reaction is
+        // still coming; a disconnect only emptied the box. Putting this element
+        // back in it reuses that reaction instead of registering a second one,
+        // so a stalled import plus a hundred htmx swaps is still one reaction.
+        this.#slot.element = this;
+        return;
+      }
+      // The load settled while this element sat detached. The reaction found
+      // the box empty and returned — it could not clear this element's #slot,
+      // because emptying the box was exactly what severed its reference to
+      // this element. A box that is both settled and still held here is that
+      // phantom, and waiting on it would leave the element `loading` forever;
+      // dropping it lets a fresh reaction register below, against a wasm
+      // promise that is already cached on the success path.
+      this.#slot = null;
+    }
+
+    // Through a box, not directly. A promise reaction cannot be unregistered,
+    // so a `.then` on the shared import holds whatever it closes over until
+    // that import settles — and capturing `this` would let a removed sandbox
+    // and its whole subtree outlive its own disconnect, past free() and past
+    // the live count meant to notice. The reaction closes over the box instead,
+    // and disconnect empties it. What a stalled import can still retain is one
+    // emptied box per swap: bytes, deterministically, with no DOM attached and
+    // no dependence on WeakRef or on when a collector feels like running.
+    const slot = { element: this, settled: false };
+    this.#slot = slot;
+    loadWasm().then(
+      (module) => {
+        slot.settled = true;
+        const element = slot.element;
+        slot.element = null;
+        if (!element) {
+          return;
+        }
+        element.#slot = null;
+        element.#boot(module);
+      },
+      (error) => {
+        slot.settled = true;
+        const element = slot.element;
+        slot.element = null;
+        if (!element) {
+          return;
+        }
+        element.#slot = null;
+        // A sandbox removed while the load was in flight is already reporting
+        // `detached`, and that is the truer state: nothing is broken about it,
+        // it is simply not here. Overwriting it with `error` would invent a
+        // failure for an element nobody is waiting on.
+        if (!element.isConnected) {
+          return;
+        }
+        element.dataset.island = 'error';
+        element.#report(error, 'wasm-init');
+      },
+    );
+  }
+
+  // Freeing is not optional. The handle owns the only strong reference to the
+  // island's wasm-side state, its four DOM listeners, a pending clipboard
+  // write and an object URL; dropping the JS wrapper alone would leave all of
+  // them alive in linear memory, and an htmx page that swaps this fragment in
+  // and out would accumulate one whole sandbox per swap. free() is the only
+  // thing that runs the destructor.
+  disconnectedCallback() {
+    // Empty the box, but keep it. A load still in flight has a reaction holding
+    // this element through that box, and emptying it is the only way to let go
+    // — the reaction cannot be taken off the promise. Keeping the box is what
+    // lets a reconnect refill it rather than attach a second reaction.
+    if (this.#slot) {
+      this.#slot.element = null;
+    }
+    const island = this.#island;
+    this.#island = null;
+    this.dataset.island = 'detached';
+    if (!island) {
+      return;
+    }
+    try {
+      island.free();
+    } catch (error) {
+      this.#report(error, 'disconnect');
+    }
+  }
+
+  #boot(module) {
+    // The element may have been removed while the wasm was in flight, or
+    // removed and put back — in which case a second connect already booted it.
+    if (!this.isConnected || this.#island) {
+      return;
+    }
+    let island;
+    try {
+      island = module.mount_resume_sandbox(this);
+    } catch (error) {
+      this.dataset.island = 'error';
+      this.#report(error, 'connect');
+      return;
+    }
+    // Checked again, on the far side of the mount. Mounting writes the
+    // skeleton into this element, and a DOM write is a place other code runs:
+    // any custom element it removes gets a synchronous disconnectedCallback,
+    // and a page-level handler in that callback can remove this host. That
+    // disconnect already ran and found no handle to free, so storing one here
+    // unchecked would leave a detached element holding a live island — the
+    // exact cycle free() exists to break, made permanent.
+    if (!this.isConnected) {
+      this.dataset.island = 'detached';
+      try {
+        island.free();
+      } catch (error) {
+        this.#report(error, 'disconnect');
+      }
+      return;
+    }
+    this.#island = island;
+    this.dataset.island = 'ready';
+  }
+
+  // An event dispatched on a detached node bubbles through a detached tree and
+  // reaches no document-level listener, so a report from a disconnected sandbox
+  // would be silent. The root is the fallback: a beacon with no span beats no
+  // beacon. Both failure paths here can arrive after a removal — a rejected
+  // import, and free() itself.
+  #report(error, phase) {
+    const host = this.isConnected ? this : document.documentElement;
+    reportCustomElementError(host, error, phase, SANDBOX_TAG);
+  }
 }
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
@@ -294,4 +464,7 @@ class UiConstellation extends HTMLElement {
 // define() would throw where nothing is watching.
 if (!customElements.get(TAG)) {
   customElements.define(TAG, UiConstellation);
+}
+if (!customElements.get(SANDBOX_TAG)) {
+  customElements.define(SANDBOX_TAG, ResumeSandbox);
 }

@@ -1,4 +1,11 @@
-//! `<ui-constellation>` — the site's one WASM island.
+//! The site's WASM islands, and the panic plumbing they share.
+//!
+//! Two elements ship from this crate. `<resume-sandbox>` lives in
+//! [`resume_sandbox`], with everything worth testing about it in [`resume`];
+//! this file is `<ui-constellation>` and the machinery both of them report
+//! failures through.
+//!
+//! # `<ui-constellation>`
 //!
 //! A canvas of nine nodes on fixed orbits, linked when they drift close enough,
 //! reacting to the pointer. It is a placeholder for a real project graph, and it
@@ -19,6 +26,15 @@
 //! The element itself is defined in `assets/islands/loader.js`; this crate is
 //! the drawing and the panic plumbing. Nothing here touches the DOM outside the
 //! canvas it is handed.
+//!
+//! `<resume-sandbox>` follows the same division: `loader.js` defines that class
+//! too and calls [`resume_sandbox::mount_resume_sandbox`] from its
+//! `connectedCallback`. That module explains why an element defined from
+//! *inside* the wasm cannot work — its lifecycle callbacks would be downstream
+//! of the fetch that has to produce them.
+
+pub mod resume;
+pub mod resume_sandbox;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -57,10 +73,10 @@ thread_local! {
 }
 
 /// Scopes [`PANIC_SOURCE`] to one call, restoring whatever it displaced.
-struct Source(Option<Element>);
+pub(crate) struct Source(Option<Element>);
 
 impl Source {
-    fn enter(element: &Element) -> Self {
+    pub(crate) fn enter(element: &Element) -> Self {
         Self(PANIC_SOURCE.with(|cell| cell.replace(Some(element.clone()))))
     }
 }
@@ -307,8 +323,8 @@ impl Constellation {
             .get_context("2d")?
             .ok_or_else(|| JsValue::from_str("2d canvas context unavailable"))?
             .dyn_into::<CanvasRenderingContext2d>()?;
-        let style = web_sys::window()
-            .and_then(|window| window.get_computed_style(&canvas).ok().flatten());
+        let style =
+            web_sys::window().and_then(|window| window.get_computed_style(&canvas).ok().flatten());
 
         // The host element, so a panic raised while this island is running is
         // attributed to the fragment it was mounted in — not to the document,
@@ -389,11 +405,7 @@ impl Constellation {
             handle.set(scheduled);
         }) as Box<dyn FnMut(f64)>));
 
-        let scheduled = self
-            .frame
-            .borrow()
-            .as_ref()
-            .and_then(request_frame);
+        let scheduled = self.frame.borrow().as_ref().and_then(request_frame);
         self.handle.set(scheduled);
     }
 
@@ -446,6 +458,19 @@ fn request_frame(closure: &Closure<dyn FnMut(f64)>) -> Option<i32> {
     web_sys::window()?
         .request_animation_frame(closure.as_ref().unchecked_ref())
         .ok()
+}
+
+/// Run on module init, before anything else in here can be called.
+///
+/// One job: install the panic hook. `loader.js` also calls
+/// [`install_panic_hook`] immediately after `init()` resolves, and doing it
+/// twice is harmless — `set_hook` replaces. Doing it here as well closes the
+/// window between the module coming up and that call, which costs nothing and
+/// means no panic in this crate can ever reach JS as a bare
+/// `RuntimeError: unreachable` with its message already gone.
+#[wasm_bindgen(start)]
+fn start() {
+    install_panic_hook();
 }
 
 /// Route Rust panics to the probe.

@@ -1,0 +1,24 @@
+{
+  "axes": {
+    "density": 0.35714285712369076,
+    "expressiveness": 0.6415668429979174,
+    "motion_intensity": 0.0
+  },
+  "blandness_score": 0.6693676765534051,
+  "builder_family": "claude",
+  "cell": [
+    1,
+    1,
+    0
+  ],
+  "cell_hint": null,
+  "findings": [],
+  "fitness": 1.25,
+  "gate_summary": "7/7 gates passed",
+  "note": "its good enough -- copy is the owner's own basis text, grammar-corrected, over the round-6 winner's structure",
+  "panel_rank": 1,
+  "part": "hero",
+  "picked_at": "2026-08-08T00:29:21.337476+00:00",
+  "picked_by": "kmosoti",
+  "variant_id": "hero.claude.0"
+}

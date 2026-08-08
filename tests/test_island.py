@@ -1,24 +1,36 @@
-"""Calibration for the WASM island: it must draw, it must hold still when asked,
-and it must be able to fail *legibly*.
+"""Calibration for the WASM island the site actually mounts: `<resume-sandbox>`
+on `/about`.
 
-The first two are the island as a feature. The third is the island as a sensor
-subject, and it is the reason this file drives a real browser instead of asserting
-on markup: a panic inside wasm is a trap, and by the time JS sees it the message
-is gone. Only the hook installed inside the module can still name what happened,
-and only a browser can prove the hook is wired to the probe.
+It must upgrade, it must render structured input, it must refuse malformed input
+*legibly*, and when it cannot load at all it must say so somewhere a machine can
+read.
+
+The first three are the island as a feature. The fourth is the island as a
+sensor subject, and it is the reason this file drives a real browser instead of
+asserting on markup: nothing about a custom element's failure path is visible in
+the HTML the server sent. Only the browser can prove that the loader's report is
+wired to the probe, and that the probe attributes it to the page the element was
+on.
 
 The chain under test, end to end:
 
-    ?panic=1 -> loader.js -> provoke_panic() -> Rust panic hook
-             -> ui-servo:wasm-panic CustomEvent (bubbling, from the element)
-             -> probe.js document listener -> beacon POST, attributed to the
-                fragment's data-span-id
+    /about -> loader.js -> <resume-sandbox> connectedCallback
+           -> mount_resume_sandbox() -> editor, preview, violations
+           -> (on a failed module fetch) ui-servo:ce-error CustomEvent
+              (bubbling, from the element)
+           -> probe.js document listener -> beacon POST, attributed to the
+              page wrapper's data-span-id
 
 Both halves of the last hop are asserted. The CustomEvent itself is checked with
 a page-level listener installed before navigation, and the beacon is checked by
 intercepting the POST with ``page.route`` -- the preview server is a separate
 unit, so this file stands the beacon endpoint up itself rather than depending on
 one being run alongside.
+
+The failure is provoked by aborting the module request rather than by a test
+hook in the crate: `?panic=1` is `<ui-constellation>`'s, and no page mounts a
+constellation any more. A refused fetch is a real thing that happens to a lazily
+loaded island, and it needs nothing in the shipped code to exist for it.
 
 Requires a built island (``site/islands/build.sh``, i.e. ``wasm-pack``) and a
 Rust toolchain. Everything is skipped rather than failed when those are absent:
@@ -55,31 +67,30 @@ TURN_ID = "t-island-acceptance"
 BOOT_TIMEOUT_S = 30.0
 ACTION_TIMEOUT_MS = 15_000
 
-# A fingerprint of what is on the canvas: how many pixels are painted at all,
-# and a cheap order-sensitive checksum of them. Two frames of the same drift are
-# never identical; two renders of a *static* island always are.
-FINGERPRINT = """(selector) => {
-  const canvas = document.querySelector(selector + ' canvas');
-  if (!canvas) return null;
-  const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-  let painted = 0;
-  let checksum = 0;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] > 8) {
-      painted += 1;
-      checksum = (checksum + i * data[i]) % 2147483647;
-    }
-  }
-  return { painted, checksum, width: canvas.width, height: canvas.height };
-}"""
+# The page that mounts the island, and the one that does not. `/` carrying the
+# loader and no island at all is half the contract: the script is on every page
+# so that an island swapped in later still works, and paying for it on a page
+# with nothing to upgrade is the deliberate cost.
+ABOUT = "/about"
+HOME = "/"
+
+# The island builds its own furniture and these are the hooks it builds it
+# against -- the same selectors `mount` resolves, which the crate pins in
+# `the_skeleton_carries_every_hook_mount_looks_for`. They are collected here so
+# that a rename on that side is one edit on this one.
+HOST = "resume-sandbox"
+EDITOR = f"{HOST} textarea"
+PREVIEW = f"{HOST} [data-resume-preview]"
+VIOLATIONS = f"{HOST} [data-validation-output]"
+TITLE = f"{HOST} [data-validation-title]"
+PILL = f"{HOST} [data-render-state]"
 
 # Installed before navigation so the listeners beat the island's own upgrade.
 #
-# The counters are test scaffolding deliberately kept *out* of the component: an
-# element that publishes its own listener bookkeeping is publishing it to
-# production too. `ResizeObserver` and `MediaQueryList` are wrapped instead, and
-# media listeners are recorded with their query so this counts only the
-# island's, not any other page code's.
+# Only the two convention events are captured. The counters the old file kept
+# (ResizeObserver, MediaQueryList) belonged to the constellation's redraw
+# lifecycle; this island has neither, and bookkeeping for something nothing
+# tests is bookkeeping that rots.
 CAPTURE_EVENTS = """
   window.__ISLAND_PANICS__ = [];
   window.__ISLAND_CE_ERRORS__ = [];
@@ -92,65 +103,22 @@ CAPTURE_EVENTS = """
   }, true);
   document.addEventListener(
     'ui-servo:ce-error', (event) => window.__ISLAND_CE_ERRORS__.push(event.detail), true);
-
-  window.__ISLAND_OBSERVERS__ = { created: 0, disconnected: 0 };
-  if (typeof ResizeObserver === 'function') {
-    const Native = ResizeObserver;
-    window.ResizeObserver = class extends Native {
-      constructor(callback) {
-        super(callback);
-        window.__ISLAND_OBSERVERS__.created += 1;
-      }
-      disconnect() {
-        window.__ISLAND_OBSERVERS__.disconnected += 1;
-        return super.disconnect();
-      }
-    };
-  }
-
-  window.__ISLAND_MEDIA__ = { added: [], removed: [] };
-  if (typeof MediaQueryList === 'function') {
-    const proto = MediaQueryList.prototype;
-    const add = proto.addEventListener;
-    const remove = proto.removeEventListener;
-    proto.addEventListener = function (...args) {
-      window.__ISLAND_MEDIA__.added.push(this.media);
-      return add.apply(this, args);
-    };
-    proto.removeEventListener = function (...args) {
-      window.__ISLAND_MEDIA__.removed.push(this.media);
-      return remove.apply(this, args);
-    };
-  }
 """
 
-# Mount a second island by fetching the same fragment the server serves, so the
-# copy is the real thing -- span id, frame and all -- rather than a hand-built
-# element the site would never produce.
-MOUNT_SECOND = """async ({ attributes, holderId }) => {
-  const response = await fetch('/fragments/constellation');
-  const holder = document.createElement('div');
-  if (holderId) holder.id = holderId;
-  holder.innerHTML = await response.text();
-  const island = holder.querySelector('ui-constellation');
-  for (const [name, value] of Object.entries(attributes || {})) {
-    island.setAttribute(name, value);
-  }
-  document.querySelector('main').appendChild(holder);
-  return holder.querySelector('[data-span-id]').dataset.spanId;
-}"""
-
-# Cut the four contract colours off one island. `initial` on a custom property
-# is the guaranteed-invalid value, which is exactly what a missing token looks
-# like from inside the component.
-BLANK_THE_TOKENS = """(holderId) => {
-  const style = document.createElement('style');
-  style.textContent = `#${holderId} ui-constellation {
-    --color-accent: initial; --color-accent-2: initial;
-    --color-border: initial; --color-muted: initial;
-  }`;
-  document.head.appendChild(style);
-}"""
+# An empty object: every one of the eight required fields is missing at once,
+# which is the case that proves the panel lists *all* the violations rather than
+# stopping at the first.
+EMPTY_DOCUMENT = "{}"
+REQUIRED_FIELDS = [
+    "name",
+    "headline",
+    "contact",
+    "summary",
+    "skills",
+    "experience",
+    "projects",
+    "education",
+]
 
 
 def free_port() -> int:
@@ -262,11 +230,16 @@ def browser() -> Iterator[Browser]:
             instance.close()
 
 
+def fetch(url: str) -> str:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        return response.read().decode()
+
+
 def open_page(browser: Browser, **context: object) -> tuple[Page, list[str]]:
     """A page that remembers every uncaught error it saw.
 
-    An island that draws while throwing once a frame is not working; the errors
-    list is asserted on rather than merely printed.
+    An island that renders while throwing on every keystroke is not working; the
+    errors list is asserted on rather than merely printed.
     """
     page = browser.new_page(**context)
     page.set_default_timeout(ACTION_TIMEOUT_MS)
@@ -276,9 +249,58 @@ def open_page(browser: Browser, **context: object) -> tuple[Page, list[str]]:
     return page, failures
 
 
-def mounted(page: Page, url: str, state: str = "ready") -> None:
-    page.goto(url, wait_until="domcontentloaded")
-    page.wait_for_selector(f"ui-constellation[data-island='{state}']")
+def mounted(page: Page, base_url: str, state: str = "ready") -> None:
+    """Open `/about` and wait for the sandbox to reach `state`.
+
+    `data-island` is written by `loader.js` at each step of the lifecycle, so
+    waiting on it is waiting on the wasm fetch, the mount, and the first
+    evaluation -- not on a timeout.
+
+    `attached`, not the default `visible`: a sandbox that failed to load has a
+    one-line fallback in it and a sandbox mid-teardown has nothing, and neither
+    state is one this helper should refuse to observe.
+    """
+    page.goto(f"{base_url}{ABOUT}", wait_until="domcontentloaded")
+    page.wait_for_selector(f"{HOST}[data-island='{state}']", state="attached")
+
+
+def panel(page: Page) -> dict[str, str]:
+    """Everything the island currently says about the editor's contents.
+
+    Read as one snapshot rather than one assertion at a time: the four surfaces
+    are written by a single `update()`, and the failure worth catching is two of
+    them disagreeing.
+    """
+    return {
+        "title": page.text_content(TITLE) or "",
+        "pill": page.text_content(PILL) or "",
+        "violations": page.text_content(VIOLATIONS) or "",
+        "preview": page.text_content(PREVIEW) or "",
+    }
+
+
+def edit(page: Page, source: str, pill: str) -> dict[str, str]:
+    """Put `source` in the editor and read the panel back, once it says `pill`.
+
+    `fill` dispatches a real `input` event and the island updates *inside* that
+    dispatch, so the panel has already settled by the time this returns. The
+    wait is therefore an assertion rather than a synchronisation: it is where a
+    panel that settled on the wrong state fails, with the state it settled on in
+    the message, instead of four confusing assertions later.
+    """
+    page.fill(EDITOR, source)
+    page.wait_for_selector(f"{PILL}:text-is('{pill}')")
+    return panel(page)
+
+
+def sideways(page: Page) -> int:
+    """How far the *document* can be scrolled horizontally, in px.
+
+    The document, not the element. An element wider than the viewport does not
+    merely overflow itself: unless something contains it, it widens the whole
+    page and every paragraph on it starts one swipe to the left.
+    """
+    return page.evaluate("() => document.documentElement.scrollWidth - window.innerWidth")
 
 
 # --------------------------------------------------------------------------- #
@@ -286,68 +308,194 @@ def mounted(page: Page, url: str, state: str = "ready") -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_the_island_is_mounted_inside_a_fragment(base_url: str) -> None:
-    """Server-side half of the contract: the element lives in a span-bearing
-    fragment, so anything it reports has a join key."""
-    with urllib.request.urlopen(f"{base_url}/", timeout=5) as response:
-        markup = response.read().decode()
+def test_the_sandbox_is_mounted_inside_the_pages_span(base_url: str) -> None:
+    """Server-side half of the contract: the element is on `/about`, closed, and
+    inside the wrapper that carries the page's join key, so anything it reports
+    has somewhere to be attributed.
 
-    assert "<ui-constellation" in markup
-    fragment_start = markup.index('data-fragment="constellation"')
-    section_start = markup.rindex("<section", 0, fragment_start)
-    section_end = markup.index("</section>", fragment_start)
-    section = markup[section_start:section_end]
-    assert "data-span-id=" in section
-    assert "<ui-constellation" in section
+    Enclosure, not mere order. The probe resolves an element-targeted reading by
+    walking up to the nearest `[data-span-id]`; a sandbox that rendered *after*
+    the wrapper closed would look identical in a `contains` check and beacon
+    into the probe's fallback.
+    """
+    markup = fetch(f"{base_url}{ABOUT}")
+
+    assert markup.count("<resume-sandbox") == 1, "more than one sandbox on the page"
+    span = markup.index('data-span-id="')
+    sandbox = markup.index("<resume-sandbox")
+    closes = markup.index("</resume-sandbox>")
+    wrapper_closes = markup.rindex("</div>")
+
+    # Not empty: what is inside is the fallback a visitor keeps if the module
+    # never arrives, and `mount` replaces it only on a load that worked.
+    assert "<p" in markup[sandbox:closes], "the sandbox ships no fallback"
+    assert span < sandbox < wrapper_closes, "the sandbox is outside the page's span wrapper"
+
+    # It is also under its own heading rather than loose at the end of the page:
+    # an element nothing introduces is an element nobody uses.
+    heading = markup.index("Résumé, as data")
+    assert heading < sandbox < markup.index("</section>", sandbox)
+
+    # Inert markup until the loader defines the tag.
     assert '/assets/islands/loader.js"' in markup
 
 
-def test_element_upgrades_and_draws(browser: Browser, base_url: str) -> None:
-    """The custom element upgrades and puts pixels on the canvas.
+def test_the_loader_is_on_every_page_and_the_island_is_not(base_url: str) -> None:
+    """`/` carries the loader and mounts nothing.
 
-    Non-blank is measured, not eyeballed: a canvas that was never drawn on has
-    every alpha byte at zero.
+    The script is unconditional in the shell so that htmx can swap an island
+    into a page that did not start with one. That is only worth its bytes if it
+    is actually on a page with no island, and this is the assertion that keeps
+    it there -- and that keeps `/` honest about no longer mounting the
+    constellation it once did.
+    """
+    markup = fetch(f"{base_url}{HOME}")
+    assert '/assets/islands/loader.js"' in markup
+    assert "<resume-sandbox" not in markup
+    assert "<ui-constellation" not in markup
+
+
+def test_the_element_upgrades_and_opens_on_the_sample(browser: Browser, base_url: str) -> None:
+    """The custom element upgrades, fetches its wasm, and fills itself in.
+
+    The opening state is a worked example, not a blank box: the editor holds
+    parseable JSON and the panel already agrees with it. Both halves are checked
+    -- an editor pre-filled with text the panel calls invalid would be a worse
+    first impression than an empty one.
     """
     page, failures = open_page(browser)
     try:
-        mounted(page, f"{base_url}/")
-        frame = page.evaluate(FINGERPRINT, "ui-constellation")
-        assert frame is not None, "the island never created a canvas"
-        assert frame["width"] > 0 and frame["height"] > 0
-        # A few hundred painted pixels is nine dots and their links; zero is a
-        # canvas that upgraded but never drew.
-        assert frame["painted"] > 200, frame
+        mounted(page, base_url)
+        opening = panel(page)
+        assert opening["pill"] == "rendered", opening
+        assert opening["title"] == "Valid resume data", opening
+        assert "Kennedy Mosoti" in opening["preview"], opening
+
+        source = page.input_value(EDITOR)
+        assert json.loads(source)["name"] == "Kennedy Mosoti"
+
+        # The server-rendered fallback is gone, replaced by the editor it was
+        # standing in for. A page showing both would be telling a visitor the
+        # thing in front of them does not work.
+        assert "needs JavaScript" not in page.inner_text(HOST)
         assert failures == [], failures
     finally:
         page.close()
 
 
-def test_the_island_animates(browser: Browser, base_url: str) -> None:
+def test_invalid_json_lists_every_violation(browser: Browser, base_url: str) -> None:
+    """Malformed input fails legibly, and the two ways it can be malformed are
+    told apart.
+
+    A structural failure reports one line per problem -- all eight at once for
+    an empty object, because a person fixing a paste-in wants the whole list.
+    A syntax failure reports the parser's own complaint under a *different*
+    heading: telling someone their braces are wrong when their braces are fine
+    is the one unhelpful thing a validator can do.
+    """
     page, failures = open_page(browser)
     try:
-        mounted(page, f"{base_url}/")
-        before = page.evaluate(FINGERPRINT, "ui-constellation")
-        page.wait_for_timeout(900)
-        after = page.evaluate(FINGERPRINT, "ui-constellation")
-        assert before["checksum"] != after["checksum"], (before, after)
+        mounted(page, base_url)
+
+        structural = edit(page, EMPTY_DOCUMENT, "blocked")
+        assert structural["title"] == "Invalid structure", structural
+        for field in REQUIRED_FIELDS:
+            assert f"Missing required field: {field}" in structural["violations"], field
+        assert "Fix validation errors before rendering." in structural["preview"], structural
+
+        syntax = edit(page, "{ oops", "blocked")
+        assert syntax["title"] == "Invalid JSON", syntax
+        assert syntax["violations"], "a syntax failure with no message is half an answer"
+        assert "Fix JSON syntax before rendering." in syntax["preview"], syntax
+
         assert failures == [], failures
     finally:
         page.close()
 
 
-def test_reduced_motion_renders_once_and_holds_still(browser: Browser, base_url: str) -> None:
-    """Under `prefers-reduced-motion` the island draws one frame and schedules
-    nothing -- so the same canvas is still there a second later, pointer
-    movement included."""
-    page, failures = open_page(browser, reduced_motion="reduce")
+def test_valid_json_renders_the_preview(browser: Browser, base_url: str) -> None:
+    """An edit that keeps the document valid re-renders the preview from it.
+
+    The edit is made by parsing what the editor already holds and putting it
+    back, so the test proves the round trip -- editor to JSON to preview -- and
+    not merely that some fixed string this file happens to carry is accepted.
+    """
+    page, failures = open_page(browser)
     try:
-        mounted(page, f"{base_url}/")
-        before = page.evaluate(FINGERPRINT, "ui-constellation")
-        assert before["painted"] > 200, before
-        page.mouse.move(300, 300)
-        page.wait_for_timeout(900)
-        after = page.evaluate(FINGERPRINT, "ui-constellation")
-        assert before == after, (before, after)
+        mounted(page, base_url)
+        resume = json.loads(page.input_value(EDITOR))
+        resume["name"] = "Ada Lovelace"
+        resume["skills"] = ["Analytical Engine"]
+
+        rendered = edit(page, json.dumps(resume, indent=2), "rendered")
+        assert rendered["title"] == "Valid resume data", rendered
+        assert "Ada Lovelace" in rendered["preview"], rendered
+        assert "Analytical Engine" in rendered["preview"], rendered
+        assert "Kennedy Mosoti" not in rendered["preview"], "the preview is stale"
+        assert rendered["violations"].startswith("Schema checks passed."), rendered
+        assert failures == [], failures
+    finally:
+        page.close()
+
+
+def test_the_preview_escapes_what_the_editor_hands_it(browser: Browser, base_url: str) -> None:
+    """The preview pane is filled with `innerHTML`, and everything that reaches
+    it comes from a `maud` template -- so a `<script>` in the editor arrives as
+    text.
+
+    The crate asserts this about the string it builds. This asserts it about the
+    DOM the browser built from that string, which is the only place the claim
+    can actually be wrong.
+    """
+    page, failures = open_page(browser)
+    try:
+        mounted(page, base_url)
+        resume = json.loads(page.input_value(EDITOR))
+        # Two payloads, because they fail differently. `innerHTML` never runs a
+        # `<script>` it builds, so a script that survived as an *element* would
+        # be a hole this test could not observe by waiting for it to fire --
+        # the element count is what catches that one. An `onerror` attribute on
+        # a broken image is the shape that does fire, immediately, and it is
+        # the one the global witnesses.
+        resume["name"] = "<script>window.__PWNED__ = 'script';</script>"
+        resume["headline"] = "<img src=x onerror=\"window.__PWNED__ = 'img'\">"
+
+        rendered = edit(page, json.dumps(resume, indent=2), "rendered")
+        assert "window.__PWNED__" in rendered["preview"], "the payload was dropped, not escaped"
+        assert page.locator(f"{PREVIEW} script").count() == 0, "a script element was built"
+        assert page.locator(f"{PREVIEW} img").count() == 0, "an img element was built"
+        assert page.evaluate("window.__PWNED__ === undefined"), "the payload ran"
+        assert failures == [], failures
+    finally:
+        page.close()
+
+
+def test_the_page_does_not_scroll_sideways_with_the_island_on_it(
+    browser: Browser, base_url: str
+) -> None:
+    """`/about` fits a phone, with the island mounted and in every state it has.
+
+    The island's furniture is sized in *characters* -- a `<textarea cols="72">`
+    is about 600px wide however wide the screen is -- and its validation output
+    is a `<pre>`, whose lines are as long as they are. Either one, unconstrained,
+    makes the whole document scroll sideways on a phone rather than merely
+    overflowing itself.
+
+    Checked in all three states, because they are three different widths: the
+    sample, a blocked document whose violation lines are the longest text on the
+    page, and the syntax error whose one line is `serde_json`'s.
+    """
+    page, failures = open_page(browser, viewport={"width": 375, "height": 800})
+    try:
+        mounted(page, base_url)
+        assert sideways(page) == 0, "the sample state overflows the viewport"
+
+        edit(page, EMPTY_DOCUMENT, "blocked")
+        assert sideways(page) == 0, "the violation list overflows the viewport"
+
+        edit(page, "{ oops", "blocked")
+        assert sideways(page) == 0, "the syntax complaint overflows the viewport"
+
         assert failures == [], failures
     finally:
         page.close()
@@ -358,41 +506,22 @@ def test_reduced_motion_renders_once_and_holds_still(browser: Browser, base_url:
 # --------------------------------------------------------------------------- #
 
 
-def test_panic_dispatches_the_wasm_panic_event(browser: Browser, base_url: str) -> None:
-    """`?panic=1` reaches the probe's convention event with the Rust message
-    intact.
-
-    Asserted via a page listener installed before navigation (the documented
-    alternative to routing it through the preview server shell, which is a
-    different unit's process).
-    """
-    page, _ = open_page(browser)
-    try:
-        mounted(page, f"{base_url}/?panic=1", state="panicked")
-        page.wait_for_function("window.__ISLAND_PANICS__.length > 0")
-        detail = page.evaluate("window.__ISLAND_PANICS__[0]")
-
-        assert "deliberate panic from the ?panic=1 test hook" in detail["message"]
-        assert detail["module"] == "ui_servo_islands_bg.wasm"
-        assert detail["stack"], "a panic beacon with no stack is half an answer"
-
-        # The trap that follows the panic is the second, independent witness.
-        errors = page.evaluate("window.__ISLAND_CE_ERRORS__")
-        assert [error for error in errors if error["phase"] == "panic"], errors
-
-        # Drawn before it died: the still frame is what the user is left with.
-        assert page.evaluate(FINGERPRINT, "ui-constellation")["painted"] > 200
-    finally:
-        page.close()
-
-
-def test_panic_reaches_the_beacon_attributed_to_the_fragment(
+def test_a_refused_module_reaches_the_beacon_attributed_to_the_page(
     browser: Browser, base_url: str
 ) -> None:
-    """The whole sensor chain, including probe.js: the panic arrives at the
-    beacon as a `wasm-panic` event carrying this turn's id and the span id of
-    the fragment the island was mounted in."""
-    page, _ = open_page(browser)
+    """The whole sensor chain, including probe.js.
+
+    The wasm is fetched lazily, which means it can fail to arrive -- an aborted
+    request here, a cache miss against a bad deploy in production. The element
+    is then a tag with nothing behind it, and the only thing that says so is the
+    report the loader dispatches. It has to arrive at the beacon as a `ce-error`
+    carrying this turn's id, the `wasm-init` phase, and the span id of the
+    wrapper the element sits in.
+
+    Both witnesses are checked: the CustomEvent itself, via a listener installed
+    before navigation, and the beacon POST, via `page.route`.
+    """
+    page, failures = open_page(browser)
     batches: list[list[dict]] = []
 
     def collect(route: Route) -> None:
@@ -401,29 +530,66 @@ def test_panic_reaches_the_beacon_attributed_to_the_fragment(
         route.fulfill(status=204, body="")
 
     page.route("**/beacon", collect)
+    # The glue module, not the `.wasm` it goes on to fetch: refusing the import
+    # is the failure the loader has a phase for, and it needs no wasm-side code
+    # to be reachable.
+    page.route("**/ui_servo_islands.js", lambda route: route.abort())
     try:
-        mounted(page, f"{base_url}/?panic=1", state="panicked")
-        span_id = page.get_attribute("[data-fragment='constellation']", "data-span-id")
-        page.wait_for_function(
-            "window.__ISLAND_PANICS__.length > 0 && window.__ISLAND_CE_ERRORS__.length > 0"
-        )
+        mounted(page, base_url, state="error")
+        span_id = page.get_attribute("[data-span-id]", "data-span-id")
+        page.wait_for_function("window.__ISLAND_CE_ERRORS__.length > 0")
+
+        detail = page.evaluate("window.__ISLAND_CE_ERRORS__[0]")
+        assert detail["phase"] == "wasm-init", detail
+        # Named as the sandbox, not as the constellation: two elements share
+        # this loader, and a report labelled with the wrong one sends whoever
+        # reads the beacon to the wrong file.
+        assert detail["tag"] == "resume-sandbox", detail
+        assert detail["message"], "a report with no message names nothing"
+
         # Error-class kinds flush immediately; this is transport latency, not a
         # 2 s flush interval.
         deadline = time.monotonic() + 5
         events: list[dict] = []
         while time.monotonic() < deadline:
             events = [event for batch in batches for event in batch]
-            if any(event["kind"] == "wasm-panic" for event in events):
+            if any(event["kind"] == "ce-error" for event in events):
                 break
             page.wait_for_timeout(100)
 
-        panics = [event for event in events if event["kind"] == "wasm-panic"]
-        assert panics, [event["kind"] for event in events]
-        panic = panics[0]
-        assert panic["turnId"] == TURN_ID
-        assert panic["spanId"] == span_id, "the panic is not attributed to its fragment"
-        assert "deliberate panic" in panic["payload"]["message"]
-        assert panic["payload"]["module"] == "ui_servo_islands_bg.wasm"
+        reports = [event for event in events if event["kind"] == "ce-error"]
+        assert reports, [event["kind"] for event in events]
+        report = reports[0]
+        assert report["turnId"] == TURN_ID
+        assert report["spanId"] == span_id, "the failure is not attributed to the page"
+        assert report["payload"]["phase"] == "wasm-init", report
+        assert report["payload"]["message"], report
+
+        # Two fields, not four, and that is under-reporting rather than a
+        # contract. `probe/README.md` documents this kind as carrying `message`,
+        # `phase`, `tag` and `stack`; the loader dispatches all four (asserted on
+        # `detail` above) and `probe.js`'s convention listener forwards only the
+        # first two, so the component name and the stack die on this hop. That
+        # is the probe's bug, in a unit this file does not own, and it is filed
+        # rather than pinned: asserting the payload is *exactly* two fields would
+        # make this test fail on the fix, which is the one thing a test about a
+        # known defect must never do.
+
+
+        # The element says so on itself too, which is what a human debugging in
+        # devtools sees before they ever look at a beacon.
+        assert page.get_attribute(HOST, "data-island") == "error"
+        # And the visitor is left with the fallback rather than an empty box
+        # under a paragraph promising an editor.
+        assert "needs JavaScript" in page.inner_text(HOST)
+
+        # A refused module is a *handled* failure, unlike the deliberate panic
+        # this test replaced: the loader reports it and swallows it, precisely
+        # so one dead island does not take a swap with it. Nothing may reach
+        # window.onerror, or the page is reporting the same thing twice and the
+        # second copy has no span on it.
+        assert failures == [], failures
     finally:
+        page.unroute("**/ui_servo_islands.js")
         page.unroute("**/beacon")
         page.close()

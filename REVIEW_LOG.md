@@ -587,3 +587,30 @@ silently. These are the observations accumulated across V0–V4 and hero rounds
     initialization, detach, settle the load, flush reactions, and reconnect —
     both fulfil and reject — so removing the settled-slot recovery cannot
     silently reintroduce the permanent `loading` state.
+
+### V5 observations (island mounted on /about; codex 2 rounds, criticals fixed)
+
+26. **A servo/probe gate on `documentElement.scrollWidth > innerWidth` at a
+    phone width is missing.** Mounting the island exposed it: `cols`-sized
+    textareas and unwrapped `<pre>` are each wider than a phone, and an
+    element wider than the viewport scrolls the whole document. No crate-level
+    test had a viewport. (Fixed for the site via semantic rules in site.css;
+    the gate is the general fix.)
+27. **`probe.js` under-reports `ce-error` on the convention path**: forwards
+    `message`/`phase` only, dropping `tag`/`stack` that probe/README.md:104
+    documents and loader.js sends. The tag dies exactly where a two-element
+    loader needs it. Probe-unit feature issue; deliberately not pinned in
+    tests.
+28. **`<ui-constellation>` has zero browser coverage now** — no page mounts
+    it. `/fragments/constellation` still serves it, so a future test can
+    inject the fragment; until then drawing, reduced motion, and the
+    `?panic=1` → `wasm-panic` beacon chain are unexercised.
+29. **wasm-pack copies the crate README into `site/assets/islands/README.md`**
+    and `stale()` doesn't compare READMEs, so a doc-only edit leaves the copy
+    contradicting the source until the next build. (Resynced by rebuild at
+    commit time.)
+30. **Heading outline**: the island injects an `<h2>` inside a section whose
+    own heading is an `<h2>`. Needs a heading-level knob on the element.
+31. V5's round-2 codex fixes were not re-reviewed (2-loop cap) — V7 re-covers.
+    Also: one more whole-crate `cargo fmt` run against norm #22 (verified to
+    have touched only the builder's own file).

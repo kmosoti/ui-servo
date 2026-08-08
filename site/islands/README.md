@@ -96,9 +96,17 @@ The loop is *not* started in this path. A trapped wasm instance cannot be
 re-entered, so a running rAF would turn one panic into a `js-error` every frame
 — evidence spam that buries the one event worth reading.
 
-`tests/test_island.py` drives exactly this: it asserts the CustomEvent fires
-with the Rust message intact, and that `probe.js` turns it into a beacon
-carrying this turn's id and the constellation fragment's span id.
+**Nothing drives this in a browser today.** `tests/test_island.py` used to: it
+asserted the CustomEvent fires with the Rust message intact and that `probe.js`
+turns it into a beacon carrying this turn's id and the constellation fragment's
+span id. Those tests went when the site stopped mounting a constellation on any
+page — `/fragments/constellation` still serves one, but a browser test has to
+open a URL that has the element on it, and there is none. The file now drives
+`<resume-sandbox>` on `/about`, and covers the sensor chain through that
+element's own failure path (a refused module fetch → `ce-error` → beacon)
+instead. The `?panic=1` path is now exercised by nothing at all — `provoke_panic`
+has no native test either, and could not have a useful one: a panic in a host
+`cargo test` unwinds, which is precisely not the trap the hook exists for.
 
 ## `<resume-sandbox>`
 
@@ -120,9 +128,10 @@ and the port is the point. Two things the JS could not do:
    interpolation escapes because that is the only thing `maud` can do with a
    `&str`. `<script>` typed into the editor arrives in the preview as text, and
    `cargo test` asserts it on the rendered string — thirteen hostile holes in
-   one résumé, all thirteen escaped. There is no browser test for it yet: the
-   claim a browser would add is that `set_inner_html` does not undo the
-   escaping, which is worth having and is not this unit's to write.
+   one résumé, all thirteen escaped. The claim a browser adds is that
+   `set_inner_html` does not undo the escaping, and `tests/test_island.py` now
+   makes it: a `<script>` and an `<img onerror>` typed into the editor on
+   `/about` build no element and set no global.
 2. **The validator went where JS's coercion used to be.** `skills: [1, 2, 3]`
    passed the old checks and the renderer printed the numbers; a `projects`
    entry with no `name` printed the word `undefined` into a résumé. Rust has no
@@ -198,12 +207,21 @@ scale and spacing. It has no `display`, so:
 | `resume-sandbox { display: block }` | nothing; an unknown element is `display: inline`, and the block children inside it lay out anyway |
 | editor and preview side by side | stacked `<section>`s |
 | a full-width `<textarea>` | `rows` and `cols`, which are content attributes rather than presentation |
-| a `<pre>` that scrolls instead of overflowing | nothing; long violation lines can overflow |
+| a `<pre>` that scrolls instead of overflowing | `site.css` now says `pre { overflow-x: auto }` — closed |
 | a pill-shaped status chip | `<code>`, which `site.css` already styles, and which is the right element for a machine state |
 
 None of these is inlined as a `style` attribute — a test asserts the skeleton
-contains no `style=` at all. Three `site.css` rules (`resume-sandbox`,
-`textarea`, `pre`) would close all five, and that file belongs to another unit.
+contains no `style=` at all.
+
+Two of the five are closed now, by the unit that mounted this island on
+`/about`: `pre { overflow-x: auto }` and `textarea { max-width: 100% }` are in
+`site.css`, written on the elements rather than on this tag. They were not
+cosmetic — a `<textarea cols="72">` and an unwrapped `<pre>` are each wider than
+a phone, and an element wider than the viewport scrolls the whole document
+sideways. The `textarea` rule caps it; it does not make it full width, so that
+row of the table stands. What is still missing is
+`resume-sandbox { display: block }` and anything that would put the editor and
+the preview side by side, and `site.css` belongs to another unit.
 
 ### Teardown
 

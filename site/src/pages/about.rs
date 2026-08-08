@@ -26,6 +26,13 @@ pub fn render(state: &AppState) -> Markup {
             // page resolving to the probe's fallback instead of to `/about`.
             // No fragment is mounted here to inherit one from, and a slot
             // nothing ever swaps into would be a lie about what this is for.
+            //
+            // It is also the only thing that attributes the sandbox below. A
+            // `<resume-sandbox>` that fails to load reports through
+            // `ui-servo:ce-error`, which bubbles to the probe's document
+            // listener and is resolved against the nearest `[data-span-id]`
+            // ancestor — this one. Outside it, a broken island beacons with no
+            // idea which page it broke on.
             div data-span-id=(crate::span::new_span_id()) {
                 article class="my-xl" {
                     h1 class="type-2xl" { "About" }
@@ -116,6 +123,35 @@ pub fn render(state: &AppState) -> Markup {
                     }
                 }
 
+                // The one interactive thing on the site, next to the paragraph
+                // that claims I build small tools — a claim is cheaper than a
+                // thing you can type into.
+                //
+                // The element fills itself in from wasm on connect
+                // (`assets/islands/loader.js` defines the tag and fetches the
+                // module lazily). What is written here is what a visitor sees
+                // until then, and what they keep if the fetch never lands:
+                // `mount` only builds the editor when it finds no
+                // `[data-resume-json]` already inside, so this line is replaced
+                // by a working sandbox and survives a broken one. Without it a
+                // paragraph promising an editor "below" would sit above
+                // nothing at all.
+                section class="my-xl" {
+                    h2 class="type-md text-muted" { "Résumé, as data" }
+                    p {
+                        "The résumé this site links to is data before it is a document: "
+                        "paste your own JSON in below and the preview re-renders as you "
+                        "type, or tells you which field is wrong."
+                    }
+                    resume-sandbox {
+                        p class="text-muted" {
+                            "The editor needs JavaScript. Without it, the "
+                            a href=(super::home::RESUME) { "PDF" }
+                            " says the same things in the same order."
+                        }
+                    }
+                }
+
                 section class="my-xl" {
                     h2 class="type-md text-muted" { "Contact" }
                     p { "Email is the surest way to reach me." }
@@ -183,16 +219,21 @@ mod tests {
         assert_ne!(page(), page(), "span ids must be fresh per render");
     }
 
-    /// The page still has a page on it: three sections, each with a body.
+    /// The page still has a page on it: four sections, each with a body.
     ///
     /// Headings rather than sentences, because copy gets rewritten and a test
     /// that pins a paragraph is a test that gets deleted — but a heading alone
     /// would pass over a section gutted down to its `<h2>`, so each one is
     /// checked for prose between its heading and its close.
     #[test]
-    fn all_three_sections_render_with_a_body() {
+    fn all_four_sections_render_with_a_body() {
         let body = page();
-        for heading in ["Where I've worked", "Outside work", "Contact"] {
+        for heading in [
+            "Where I've worked",
+            "Outside work",
+            "Résumé, as data",
+            "Contact",
+        ] {
             let opening = format!("<h2 class=\"type-md text-muted\">{heading}</h2>");
             let at = body
                 .find(&opening)
@@ -204,6 +245,72 @@ mod tests {
                 "the {heading} section is a heading with nothing under it"
             );
         }
+    }
+
+    /// The sandbox is mounted, closed, inside the span wrapper, and reachable.
+    ///
+    /// Five separate ways this element can be on the page and still be broken,
+    /// so five assertions rather than a `contains`:
+    ///
+    /// - **Closed.** A custom element written `<resume-sandbox />` is parsed as
+    ///   an *open* tag by the HTML parser, which would swallow the rest of the
+    ///   page into it. maud closes it; nothing else checks that it still does.
+    /// - **Inside the wrapper.** Everything the island reports —
+    ///   `ui-servo:ce-error` on a failed load, `ui-servo:wasm-panic` on a trap
+    ///   — is attributed by walking up to the nearest `[data-span-id]`. Outside
+    ///   the wrapper the element renders identically and every beacon it sends
+    ///   lands on the probe's fallback instead of on `/about`.
+    /// - **Under its own heading**, not loose at the end of some other section.
+    /// - **Reachable at all.** The tag is inert markup until `loader.js`
+    ///   defines it, and the shell is what carries that script.
+    /// - **Not empty.** The paragraph inside is what a visitor with no
+    ///   JavaScript, or a failed wasm fetch, is left with. Delete it and the
+    ///   section becomes a promise of an editor above an empty box.
+    #[test]
+    fn the_resume_sandbox_is_mounted_inside_the_span_wrapper() {
+        let body = page();
+        assert_eq!(
+            body.matches("<resume-sandbox").count(),
+            1,
+            "the about page should mount exactly one sandbox"
+        );
+        let sandbox = body
+            .find("<resume-sandbox")
+            .expect("the sandbox is mounted");
+        let closes = body
+            .find("</resume-sandbox>")
+            .expect("the sandbox element is not closed");
+        assert!(
+            body[sandbox..closes].contains("<p"),
+            "the sandbox has no fallback for a visitor the island never reaches"
+        );
+
+        let span = body
+            .find("data-span-id=\"")
+            .expect("the page carries a span id");
+        let wrapper_closes = body.rfind("</div>").expect("the wrapper closes");
+        assert!(
+            span < sandbox && sandbox < wrapper_closes,
+            "the sandbox is outside the page's span wrapper, so nothing it \
+             reports can be attributed to /about"
+        );
+
+        let heading = body
+            .find("<h2 class=\"type-md text-muted\">Résumé, as data</h2>")
+            .expect("the sandbox has a section of its own");
+        let section_end = body[heading..]
+            .find("</section>")
+            .expect("the section closes")
+            + heading;
+        assert!(
+            heading < sandbox && sandbox < section_end,
+            "the sandbox is not in the section that introduces it"
+        );
+
+        assert!(
+            body.contains("/assets/islands/loader.js"),
+            "nothing on the page defines <resume-sandbox>"
+        );
     }
 
     /// Not "a contact block is present" — *the* contact block, byte for byte the

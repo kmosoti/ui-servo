@@ -136,6 +136,17 @@ code {
   color: var(--color-accent-2);
 }
 
+/* Preformatted text is preformatted: its lines are as long as they are, and on
+ * a narrow viewport the longest one is wider than the page. Overflow is
+ * *contained* rather than reflowed — `pre-wrap` would silently rewrap content
+ * whose line breaks are the point — and containing it here is what stops the
+ * whole document scrolling sideways because one line in the résumé sandbox's
+ * validation output was long. */
+pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 a {
   color: var(--color-accent);
   text-decoration-color: var(--color-border);
@@ -235,6 +246,20 @@ button {
 
 button:active {
   transform: translateY(var(--site-press-offset));
+}
+
+/* A `<textarea>` sizes itself from `cols`: an intrinsic width in characters
+ * that owes nothing to the viewport. The résumé sandbox on `/about` asks for
+ * 72 of them, which is around 600px — wider than a phone, and an element wider
+ * than the viewport makes the whole *document* scroll sideways, not just
+ * itself. `cols` stays as the sizing hint it is; this is the ceiling on it.
+ *
+ * On a semantic element rather than a class, and not named after the island:
+ * the island builds its own furniture out of ordinary HTML, and a rule that
+ * only applied to `resume-sandbox textarea` would be this stylesheet knowing
+ * about a custom element instead of about textareas. */
+textarea {
+  max-width: 100%;
 }
 
 /* ------------------------------------------------------------ fragments ---- */

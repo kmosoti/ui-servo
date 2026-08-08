@@ -473,3 +473,94 @@ And the one that matters most for the method: `SKILL.md` lists "do not break a
 tie yourself" as a non-negotiable invariant, and `README.md` says the loop "will
 not pick". The agent picked anyway. `decision.md` and `demo/README.md` now record
 that as an invariant violation rather than as the design operating to spec.
+
+## V-series — portfolio redo: observations logged as future issues
+
+Owner's instruction for this phase: run the full gauntlet per part and log
+errors and observations as feature/bugfix issues rather than fixing them
+silently. These are the observations accumulated across V0–V4 and hero rounds
+5–7 that were NOT fixed in place.
+
+### Direction-contract gaps reported by hero builders (rounds 5–7)
+
+1. **The allowlist has no layout utilities.** Every hero builder independently
+   hit this: no max-width/centering/flex/grid classes exist, so composition is
+   done entirely with spacing utilities on a document-flow column. Works for a
+   hero; will pinch for any part that needs two columns.
+2. **The display serif is locked to one size.** `type-display` is the only
+   display-scale class; no smaller display step exists for sub-mastheads.
+3. **No zero-spacing step.** The spacing scale starts above zero, so removing a
+   default margin means not using a spacing class at all — invisible in review.
+4. **No stagger token.** Motion tokens cover duration/easing (90/140/220/320ms)
+   but nothing expresses "children enter in sequence"; builders fake it or
+   skip it.
+5. **`text-border` on the ground fails contrast at 1.58:1.** It reads as
+   decoration-only, but nothing in the contract stops a builder using it on
+   prose.
+6. **`data-fragment` is the only reachable entrance.** A candidate whose root
+   lacks it never animates in preview; the contract does not say this anywhere.
+7. **Preview screenshots render fallback fonts.** Instrument Serif is not
+   loaded in the servo preview harness, so panel judges and blandness scoring
+   see a different typeface than production serves.
+
+### V4 island review minors (codex, deferred)
+
+8. **Experience `[[]]` edge case** produces a different validation message than
+   the legacy JS sandbox did — behavioural divergence, cosmetic but real.
+9. **`site/assets/islands/package.json`** omits the `snippets/` directory from
+   its `files` list, so a hypothetical npm pack drops wasm-bindgen snippets.
+10. **Islands README claims a browser XSS test** that was never committed.
+    Either commit the test or delete the claim.
+
+### Process incidents worth remembering
+
+11. **A builder used `git stash -u` in the shared checkout** during V0,
+    briefly carrying V4's in-flight work away (popped intact). All subsequent
+    builder briefs say: commit nothing, stage nothing, never stash. Candidate
+    fix: per-unit worktrees.
+12. **All three wave-2 builders died on the account session limit**
+    ("resets 4pm America/Chicago") and their state had to be reconstructed
+    from the working tree. Candidate fix: builders should write a short
+    progress ledger to their unit's scratch file as they go.
+
+### V3 observations (home/about content, codex cleared in 3 rounds)
+
+13. **`tests/test_island.py` expects `<ui-constellation>` on `/`** (6 tests,
+    incl. the browser suite) but home no longer mounts it. The resume-sandbox
+    island needs a mount point — `/about`'s "Outside work" section is the
+    natural candidate. Owned by V5 integration.
+14. **The no-promotion fallback hero is untestable**: `AppState::for_tests`
+    always loads the committed hero and `AppState::load` is private. A
+    `for_tests_without_promotions` constructor would close the gap.
+15. `site/README.md:232` still claims pages mount fragments through
+    `slot`/`reswap_button`; both helpers are now uncalled (and invisible to
+    dead-code warnings because `lib.rs` exports them).
+16. Factual-drift pattern worth keeping: the inherited Work section had three
+    résumé overstatements (invented causal link between the 3,000-role and
+    100-search-head numbers; discovery+completion claimed where the résumé
+    says cleanup PRs; "DR would have failed" vs "investigated readiness
+    gaps"). Copy that compresses a résumé should be diffed against it line by
+    line before commit.
+
+### V1 observations (static export; 10 criticals fixed across 3 codex rounds)
+
+17. **Round-3's three criticals are fixed but not re-reviewed** — the 3-round
+    cap was spent. V7's integration review must re-cover: resolved-path use
+    throughout export, open-then-verify dev/ino asset copy, and
+    WRITE_ATTRIBUTES (`hx-post` etc.) failing when they point inside a static
+    site.
+18. **The link gate does not follow the JS module graph** (`loader.js` →
+    islands → wasm): a renamed wasm artefact would pass the gate and 404 in
+    production. Feature issue.
+19. `<form method="post" action=...>` needs paired-attribute parsing to be
+    caught by the gate. Feature issue.
+20. `/about` exports as `about/index.html` — one 301 on Pages vs. betting the
+    nav on extensionless resolution; reasoning recorded in
+    `Route::output_path`.
+21. Deliberate asymmetry, documented: export refuses symlinked assets while
+    the server serves them with per-request containment — a build artefact
+    handed to a CDN cannot re-check later.
+22. **Norm needed: per-file `rustfmt`, never whole-crate `cargo fmt`,** while
+    parallel builders share the tree (one whole-crate run reformatted another
+    unit's in-flight files; semantically neutral, but it blurs diff
+    ownership).

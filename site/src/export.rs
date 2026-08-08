@@ -144,6 +144,22 @@ pub enum ExportError {
     )]
     AssetChanged { path: PathBuf },
 
+    /// The opened asset is not inside the asset tree.
+    ///
+    /// [`AssetChanged`](Self::AssetChanged) compares the leaf's identity, which
+    /// says nothing about how the path reached it: a *parent* directory swapped
+    /// for a symlink between the walk and the open hands both the check and the
+    /// open the same out-of-tree file, in perfect agreement with each other. So
+    /// after opening, the file's real location is read back — from the
+    /// descriptor itself where the platform allows — and it must sit under the
+    /// canonical asset root, or nothing is published.
+    #[error(
+        "{path} opened to a file at {resolved}, outside the asset tree. A directory on the way \
+         to it is not what it was when the export started — nothing is published from outside \
+         assets/."
+    )]
+    AssetOutsideTree { path: PathBuf, resolved: PathBuf },
+
     #[error(
         "{name} was copied but changed on the way: source {source_hash}, copy {copy_hash}. The \
          published PDF would not be the one in the repo."
@@ -292,22 +308,59 @@ fn resolved(path: &Path) -> PathBuf {
             .join(path)
     };
 
-    let mut missing = Vec::new();
-    let mut existing = absolute.as_path();
+    // To a fixpoint, not in one pass. One pass canonicalises the nearest
+    // existing ancestor and folds the rest on lexically — but folding a `..`
+    // can *expose* a component that exists and is a symlink:
+    // `scratch/missing/../alias/out` canonicalises only `scratch` (nothing
+    // deeper exists as spelled), cancels `missing`, and would hand back
+    // `alias` raw. The folded path has no `..` left in it, so the next pass
+    // walks straight down to `alias`, canonicalises through it, and the pass
+    // after that changes nothing. Each pass only removes dot components or
+    // resolves links, so the bound is small; eight is paranoia, and running
+    // out of it returns the last resolution rather than the original spelling.
+    let mut current = absolute;
+    for _ in 0..8 {
+        let next = resolve_once(&current);
+        if next == current {
+            return next;
+        }
+        current = next;
+    }
+    current
+}
+
+/// One resolution pass: canonicalise the nearest existing ancestor, fold the
+/// not-yet-existing suffix on lexically.
+///
+/// `.` and `..` inside the suffix are resolved by skipping and popping — the
+/// pops land on an already-canonical base, never on the spelled path.
+/// Re-appending them raw was the original hole, and bailing out through
+/// `file_name()` (which is `None` for a trailing `..`) was the other half of
+/// it: `alias/missing/../out` never resolved `alias` at all.
+fn resolve_once(absolute: &Path) -> PathBuf {
+    let mut missing: Vec<std::ffi::OsString> = Vec::new();
+    let mut existing = absolute;
     loop {
         if let Ok(canonical) = existing.canonicalize() {
             let mut out = canonical;
             for part in missing.iter().rev() {
-                out.push(part);
+                if part == "." {
+                    continue;
+                }
+                if part == ".." {
+                    out.pop();
+                } else {
+                    out.push(part);
+                }
             }
             return out;
         }
-        match (existing.file_name(), existing.parent()) {
-            (Some(name), Some(parent)) => {
-                missing.push(name.to_owned());
+        match (existing.components().next_back(), existing.parent()) {
+            (Some(component), Some(parent)) => {
+                missing.push(component.as_os_str().to_owned());
                 existing = parent;
             }
-            _ => return normalize(&absolute),
+            _ => return normalize(absolute),
         }
     }
 }
@@ -411,6 +464,12 @@ pub fn not_found(state: &AppState) -> Markup {
 /// learned this the same way — see `server::static_asset`, which re-establishes
 /// containment per request for exactly this reason.
 fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
+    // Canonicalised once, up front: this is the tree every opened file must
+    // prove it still lives in at the moment it is read.
+    let root = from.canonicalize().map_err(|source| ExportError::Read {
+        path: from.to_path_buf(),
+        source,
+    })?;
     let files = walk(from)?;
     for file in &files {
         // `strip_prefix` on the `Path`, not on a lossy string: a filename may
@@ -419,7 +478,7 @@ fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
         let suffix = file.strip_prefix(from).unwrap_or(file);
         let destination = to.join(suffix);
 
-        let mut source = open_plain_file(file)?;
+        let mut source = open_plain_file(file, &root)?;
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|source| ExportError::Write {
                 path: parent.to_path_buf(),
@@ -448,7 +507,7 @@ fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
 /// Checking first and calling `fs::copy` second — which reopens by path — would
 /// leave exactly that gap, and a link swapped into it publishes any file this
 /// process can read.
-fn open_plain_file(path: &Path) -> Result<std::fs::File, ExportError> {
+fn open_plain_file(path: &Path, root: &Path) -> Result<std::fs::File, ExportError> {
     let before = std::fs::symlink_metadata(path).map_err(|source| ExportError::Read {
         path: path.to_path_buf(),
         source,
@@ -472,7 +531,53 @@ fn open_plain_file(path: &Path) -> Result<std::fs::File, ExportError> {
             path: path.to_path_buf(),
         });
     }
+
+    // The identity check above pins the *leaf*; this pins the *route to it*. A
+    // parent directory swapped for a symlink after the walk hands both `before`
+    // and `after` the same out-of-tree inode, in agreement with each other, so
+    // the question "where does this open file actually live" has to be put to
+    // the handle rather than to the path that reached it.
+    let resolved = opened_location(&file, path)?;
+    if !resolved.starts_with(root) {
+        return Err(ExportError::AssetOutsideTree {
+            path: path.to_path_buf(),
+            resolved,
+        });
+    }
     Ok(file)
+}
+
+/// Where an open file actually is, answered by the handle.
+///
+/// On Linux this is read from the descriptor itself — `/proc/self/fd/N` names
+/// the file the handle holds, however the path that opened it has been rewired
+/// since. Off Linux there is no handle-based answer in std, and canonicalising
+/// the spelled path was the first version here — it re-walks the directories
+/// by name, so a parent swapped out for the open and back in for the check
+/// passes containment while the descriptor still holds the outside file. A
+/// gate that cannot ask its question fails closed instead: the deploy path
+/// this exporter exists for is Linux CI, and an export on another OS refusing
+/// to certify assets is better than one certifying what it cannot see.
+#[cfg(target_os = "linux")]
+fn opened_location(file: &std::fs::File, path: &Path) -> Result<PathBuf, ExportError> {
+    use std::os::fd::AsRawFd;
+    std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(|source| {
+        ExportError::Read {
+            path: path.to_path_buf(),
+            source,
+        }
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn opened_location(_file: &std::fs::File, path: &Path) -> Result<PathBuf, ExportError> {
+    Err(ExportError::Read {
+        path: path.to_path_buf(),
+        source: std::io::Error::other(
+            "asset containment is verified through the file descriptor, which needs Linux \
+             (/proc/self/fd); refusing to publish assets this gate cannot check",
+        ),
+    })
 }
 
 /// Whether two `Metadata` describe the same file.
@@ -544,20 +649,26 @@ pub fn link_check(dist: &Path) -> Result<usize, ExportError> {
         })?;
         for (attribute, reference) in references(&source) {
             let here = relative(dist, &page);
-            let target = resolve(dist, &page, &reference);
-            // A write aimed inside the site is broken however well the path
-            // resolves: the host serves GET and nothing else, so the control is
-            // dead on arrival. Checked before existence, because existence is
-            // not the question.
-            if WRITE_ATTRIBUTES.contains(&attribute) && !matches!(target, Target::External) {
+            // A write is broken on this site no matter where it points. Inside
+            // the site — including a bare `#x` or `?x`, which address the
+            // current document — the host serves GET and nothing else. And a
+            // genuinely cross-origin write is equally dead: the bundled htmx
+            // ships `selfRequestsOnly: true` and no page overrides it, so the
+            // request is refused before it is sent. An allowlist for "another
+            // origin might answer the POST" certified controls the runtime
+            // itself declines; there is no reference a write attribute can
+            // carry that works in production.
+            if WRITE_ATTRIBUTES.contains(&attribute) {
                 checked += 1;
                 broken.push(format!(
-                    "  {here} → {attribute}=\"{reference}\" is a write against the site itself, \
-                     and a file host answers GET only — the control cannot work in production \
-                     however the path resolves"
+                    "  {here} → {attribute}=\"{reference}\" is a write, and this site cannot \
+                     make one: the host answers GET only, and the bundled htmx refuses \
+                     cross-origin requests (selfRequestsOnly) — the control cannot work in \
+                     production wherever it points"
                 ));
                 continue;
             }
+            let target = resolve(dist, &page, &reference);
             match target {
                 Target::External => continue,
                 Target::Escapes(target) => {
@@ -1225,6 +1336,107 @@ mod tests {
                 assert!(details.contains("GET only"), "{details}");
             }
             other => panic!("a POST against a file host was certified: {other:?}"),
+        }
+    }
+
+    /// A write that names no path at all still names the current document.
+    ///
+    /// `hx-post="#save"` and `hx-post="?save=1"` address the page they sit on
+    /// — htmx POSTs to the current URL — and both used to pass the gate,
+    /// because `resolve` files a bare fragment or query under "external". The
+    /// write check no longer consults `resolve` at all.
+    #[test]
+    fn the_link_check_rejects_a_write_with_only_a_fragment_or_query() {
+        let (scratch, _) = exported();
+        write(
+            &scratch.path().join("form/index.html"),
+            b"<button hx-post=\"#save\">a</button><button hx-post=\"?save=1\">b</button>",
+        )
+        .expect("scratch is writable");
+
+        match link_check(scratch.path()) {
+            Err(ExportError::BrokenLinks { count, details }) => {
+                assert_eq!(count, 2, "{details}");
+            }
+            other => panic!("a self-addressed POST was certified: {other:?}"),
+        }
+    }
+
+    /// `..` in the not-yet-existing suffix cannot skip a symlinked ancestor.
+    ///
+    /// `alias/missing/../out` used to fall back to a lexical normalisation of
+    /// the unresolved path — `file_name()` is `None` on a trailing `..` — so
+    /// `alias` was never resolved and the overlap guard compared a spelling,
+    /// not a place. The folded result must name the link's target.
+    #[test]
+    #[cfg(unix)]
+    fn resolved_folds_dotdot_onto_the_canonical_base() {
+        let scratch = Scratch::new();
+        let real = scratch.path().join("real");
+        std::fs::create_dir_all(&real).expect("scratch is creatable");
+        std::os::unix::fs::symlink(&real, scratch.path().join("alias")).expect("symlink");
+
+        let spelled = scratch.path().join("alias/missing/../out");
+        let folded = resolved(&spelled);
+        let canonical_real = real.canonicalize().expect("real exists");
+        assert_eq!(
+            folded,
+            canonical_real.join("out"),
+            "the symlinked ancestor was not resolved"
+        );
+        assert!(
+            !folded
+                .components()
+                .any(|c| c == std::path::Component::ParentDir),
+            "a literal .. survived into the resolved path: {folded:?}"
+        );
+    }
+
+    /// Folding `..` can *expose* a symlink that one resolution pass then hands
+    /// back raw: `scratch/missing/../alias/out` canonicalises only `scratch`
+    /// (nothing deeper exists as spelled), cancels `missing`, and a
+    /// single-pass version appended `alias` unresolved — approving a spelling
+    /// whose real place is inside a protected input. Resolution must run to a
+    /// fixpoint.
+    #[test]
+    #[cfg(unix)]
+    fn resolved_resolves_a_symlink_exposed_by_folding() {
+        let scratch = Scratch::new();
+        let real = scratch.path().join("real");
+        std::fs::create_dir_all(&real).expect("scratch is creatable");
+        std::os::unix::fs::symlink(&real, scratch.path().join("alias")).expect("symlink");
+
+        let spelled = scratch.path().join("missing/../alias/out");
+        let folded = resolved(&spelled);
+        let canonical_real = real.canonicalize().expect("real exists");
+        assert_eq!(
+            folded,
+            canonical_real.join("out"),
+            "the symlink exposed by the fold was not resolved"
+        );
+    }
+
+    /// A regular file reached through an already-symlinked parent is refused,
+    /// deterministically — no race needed. The walk never descends through a
+    /// link, but `open_plain_file` must hold its own line: the descriptor's
+    /// real location is outside the root it was asked to stay in.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_file_reached_through_a_symlinked_parent_is_refused() {
+        let scratch = Scratch::new();
+        let root = scratch.path().join("assets");
+        let outside = scratch.path().join("outside");
+        std::fs::create_dir_all(&root).expect("scratch is creatable");
+        std::fs::create_dir_all(&outside).expect("scratch is creatable");
+        write(&outside.join("secret.txt"), b"not an asset").expect("scratch is writable");
+        std::os::unix::fs::symlink(&outside, root.join("sub")).expect("symlink");
+
+        let root = root.canonicalize().expect("root exists");
+        match open_plain_file(&root.join("sub/secret.txt"), &root) {
+            Err(ExportError::AssetOutsideTree { resolved, .. }) => {
+                assert!(resolved.starts_with(outside.canonicalize().expect("outside exists")));
+            }
+            other => panic!("an out-of-tree file was certified: {other:?}"),
         }
     }
 

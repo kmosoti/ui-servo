@@ -260,7 +260,7 @@ built. Either way the probe attributes the report to the nearest
 sandbox has to sit inside it.
 
 Two rules in `site.css` exist for this island and are written on the elements
-rather than on it: `textarea { max-width: 100% }` and `pre { overflow-x: auto }`.
+rather than on it: `textarea { max-width: 100% }` and `pre { white-space: pre-wrap }` — wrapped, not scrolled, because a locally scrolling element is what the probe files as an overflow offender.
 The editor is sized in columns and the validation output is preformatted, so on
 a phone both are wider than the page — and an element wider than the viewport
 scrolls the whole *document* sideways, not just itself. `test_island.py` checks

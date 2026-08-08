@@ -207,14 +207,14 @@ scale and spacing. It has no `display`, so:
 | `resume-sandbox { display: block }` | nothing; an unknown element is `display: inline`, and the block children inside it lay out anyway |
 | editor and preview side by side | stacked `<section>`s |
 | a full-width `<textarea>` | `rows` and `cols`, which are content attributes rather than presentation |
-| a `<pre>` that scrolls instead of overflowing | `site.css` now says `pre { overflow-x: auto }` — closed |
+| a `<pre>` that wraps instead of overflowing | `site.css` now says `pre { white-space: pre-wrap; overflow-wrap: anywhere }` (scrolling locally would trip the probe's overflow sensor) — closed |
 | a pill-shaped status chip | `<code>`, which `site.css` already styles, and which is the right element for a machine state |
 
 None of these is inlined as a `style` attribute — a test asserts the skeleton
 contains no `style=` at all.
 
 Two of the five are closed now, by the unit that mounted this island on
-`/about`: `pre { overflow-x: auto }` and `textarea { max-width: 100% }` are in
+`/about`: `pre { white-space: pre-wrap; overflow-wrap: anywhere }` and `textarea { max-width: 100% }` are in
 `site.css`, written on the elements rather than on this tag. They were not
 cosmetic — a `<textarea cols="72">` and an unwrapped `<pre>` are each wider than
 a phone, and an element wider than the viewport scrolls the whole document

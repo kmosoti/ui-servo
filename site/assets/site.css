@@ -136,15 +136,17 @@ code {
   color: var(--color-accent-2);
 }
 
-/* Preformatted text is preformatted: its lines are as long as they are, and on
- * a narrow viewport the longest one is wider than the page. Overflow is
- * *contained* rather than reflowed — `pre-wrap` would silently rewrap content
- * whose line breaks are the point — and containing it here is what stops the
- * whole document scrolling sideways because one line in the résumé sandbox's
- * validation output was long. */
+/* Preformatted text keeps its authored line breaks — `pre-wrap` preserves
+ * every newline — and a line longer than a narrow viewport wraps rather than
+ * scrolls. Wrapped, not contained-with-a-scrollbar: an earlier version used
+ * `overflow-x: auto` here, which stopped the document scrolling sideways but
+ * created exactly the locally-scrolling element the probe's overflow sensor
+ * files as an offender, so a page could pass the pytest (document width only)
+ * while the probe flagged it. One overflow answer for both witnesses: none. */
 pre {
   max-width: 100%;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 a {

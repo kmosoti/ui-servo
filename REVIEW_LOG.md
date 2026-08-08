@@ -614,3 +614,53 @@ silently. These are the observations accumulated across V0–V4 and hero rounds
 31. V5's round-2 codex fixes were not re-reviewed (2-loop cap) — V7 re-covers.
     Also: one more whole-crate `cargo fmt` run against norm #22 (verified to
     have touched only the builder's own file).
+
+## V7 — integration review of the V-series range (codex, gpt-5.6-sol max)
+
+Seven criticals, five minors, over 6209d85..24f1690. Disposition:
+
+**Fixed (4):** the `resolved()` lexical-fallback hole (`..` in a missing
+suffix skipped symlinked-ancestor resolution — `file_name()` is `None` on a
+trailing `..`, so `alias/missing/../out` never resolved `alias`); the
+parent-swap TOCTOU in asset copies (leaf dev/ino agreed with itself through a
+symlinked parent — now the opened descriptor's real location is read from
+/proc/self/fd and must sit under the canonical asset root); fragment-only and
+query-only htmx writes passing the Pages gate as "external" (they address the
+current document; writes are now judged on the raw reference and only another
+origin passes); and `pre { overflow-x: auto }` creating exactly the
+locally-scrolling element the probe files as an overflow offender (now
+pre-wrap + overflow-wrap: one overflow answer for both witnesses). Regression
+tests added for the first and third; the TOCTOU fix is structural (the
+descriptor cannot lie) and the race itself is untestable without a harness.
+
+**Dismissed with reasons (2):** the "double data-fragment" on the promoted
+hero (frame + fragment root) is shared by the preview server, so the judged
+artefact and the shipped artefact have the same structure — the alleged
+divergence does not exist, and stripping it post-hoc would create one while
+breaking the provenance digest. Filed instead as issue 32 below. The "third
+supporting paragraph" reading counts the footer aside; the identical
+structure was in the round-6 winner and in the exact artefact the owner
+approved — the artefact is the authority.
+
+**Logged as issues:**
+32. `frame()` and a promoted fragment's root both carry `data-fragment`, so
+    the entrance animation can fire on nested elements. Dedupe belongs in the
+    promote transform or in `frame()` — chosen with the digest in mind, and
+    re-judged, not patched in place.
+33. The probe scans at boot and on htmx events only; a lazily-settling island
+    mount and editor-driven DOM updates are invisible to class/motion/overflow
+    sensing (probe.js:264). Probe feature issue.
+34. tests/test_island.py aborts the module while the element is attached, so
+    the loader's detach-settle-reconnect recovery has no browser exercise
+    (joins issue 25's addendum).
+35. The export link gate still does not follow the JS module graph, and form
+    method="post" pairing is still unparsed (restated from 18-19; unchanged
+    in this pass).
+
+**V7 close-out:** loop 2 fixed three further criticals from the re-review
+(fixpoint resolution for symlinks exposed by `..` folding; non-Linux
+containment fails closed; every htmx write attribute fails the gate —
+the bundled htmx ships selfRequestsOnly:true, verified, so no origin can
+answer one) plus the three minors (deterministic AssetOutsideTree test,
+descendant-overflow browser assertions, README corrections). Loop 3 verdict:
+zero criticals, zero minors. The loop closed inside its cap.

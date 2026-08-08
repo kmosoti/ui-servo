@@ -303,6 +303,24 @@ def sideways(page: Page) -> int:
     return page.evaluate("() => document.documentElement.scrollWidth - window.innerWidth")
 
 
+def scrolling_descendants(page: Page) -> list[str]:
+    """Every element that can be scrolled horizontally *itself*, by selector.
+
+    The complement of :func:`sideways`, and the reason both exist: containing
+    an overlong line with `overflow-x: auto` keeps the document narrow -- the
+    first version of the CSS fix did exactly that and passed `sideways` -- but
+    a locally scrolling element is what the probe's overflow sensor files as
+    an offender, so the page was certified here and flagged there. The site's
+    answer is wrapping; nothing on the page should scroll sideways, at any
+    level.
+    """
+    return page.evaluate(
+        """() => [...document.querySelectorAll('body *')]
+            .filter((n) => n.scrollWidth > n.clientWidth)
+            .map((n) => n.tagName.toLowerCase() + (n.className ? '.' + n.className : ''))"""
+    )
+
+
 # --------------------------------------------------------------------------- #
 # The island as a feature.
 # --------------------------------------------------------------------------- #
@@ -489,12 +507,15 @@ def test_the_page_does_not_scroll_sideways_with_the_island_on_it(
     try:
         mounted(page, base_url)
         assert sideways(page) == 0, "the sample state overflows the viewport"
+        assert scrolling_descendants(page) == [], "the sample state scrolls locally"
 
         edit(page, EMPTY_DOCUMENT, "blocked")
         assert sideways(page) == 0, "the violation list overflows the viewport"
+        assert scrolling_descendants(page) == [], "the violation list scrolls locally"
 
         edit(page, "{ oops", "blocked")
         assert sideways(page) == 0, "the syntax complaint overflows the viewport"
+        assert scrolling_descendants(page) == [], "the syntax complaint scrolls locally"
 
         assert failures == [], failures
     finally:

@@ -64,3 +64,9 @@ provenance, but where it and the captures disagree, **the captures win**
 - **Part-specs** in `direction/parts/` keep their copy and facts, but
   where any spec or the stitched experiment disagrees with this
   reference, this reference wins.
+
+**Mechanical change (batch, 2026-08-09):** fonts vendored as 10 woff2
+were 3 distinct payloads — the shared files were already variable
+fonts served under per-weight rules; fonts.css now declares 3 variable
+@font-face rules. Rendering parity proven by weight-width and crop
+comparison (see PR batch/font-dedup).

@@ -709,6 +709,14 @@ class TestExemplarStore:
     def test_satisfies_the_port(self, tmp_path: Path) -> None:
         assert isinstance(JsonlExemplarStore(tmp_path), ExemplarStorePort)
 
+    def test_directory_is_root_slash_exemplars_not_root(self, tmp_path: Path) -> None:
+        """Regression: the store appends ``EXEMPLAR_DIRNAME`` to whatever root it is
+        given. A caller that already appends ``"exemplars"`` before constructing the
+        store doubles the segment -- see the CLI wiring test in ``test_servo.py``.
+        """
+        store = JsonlExemplarStore(tmp_path)
+        assert store.directory == tmp_path / EXEMPLAR_DIRNAME
+
     def test_save_and_list_round_trip(self, tmp_path: Path) -> None:
         store = JsonlExemplarStore(tmp_path)
         saved = store.save_exemplar(

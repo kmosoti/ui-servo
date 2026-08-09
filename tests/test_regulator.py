@@ -486,6 +486,21 @@ class TestEvidence:
         assert GATE_KIND not in FAILURE_KINDS
         assert SANITIZE_KIND not in FAILURE_KINDS
 
+    def test_the_fast_loop_vocabulary_is_a_subset_of_the_governance_vocabulary(
+        self,
+    ) -> None:
+        """Regression for the deleted consolidation TODO: this module's failure
+        vocabulary must never name a kind that `ui_servo.domain.policy` does not
+        also recognise, or the two "departure" concepts would have silently
+        diverged. The reverse containment is not asserted -- policy carries kinds
+        (axe-violation, the sanitizer kinds, layout-shift, judge-error) that have
+        their own gates and are deliberately absent here; see the comment above
+        `FAILURE_KINDS` in `ui_servo/control/regulator.py`.
+        """
+        from ui_servo.domain.policy import FAILURE_KINDS as POLICY_FAILURE_KINDS
+
+        assert FAILURE_KINDS <= POLICY_FAILURE_KINDS
+
 
 # --------------------------------------------------------------------------- #
 # Report construction                                                          #

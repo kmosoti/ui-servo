@@ -75,6 +75,11 @@ pub fn app(state: AppState) -> Router {
     for route in routes::ROUTES {
         router = register(router, route);
     }
+    // Not in the manifest, because it is not a page and not an asset: a service
+    // worker's scope is the directory it is served from, so this one has to sit
+    // at the document root or it could never answer a navigation. Declared in
+    // `routes::ROOT_FILE_ROUTES` so the source scan knows it is deliberate.
+    router = router.route("/sw.js", get(service_worker));
     router.layer(TraceLayer::new_for_http()).with_state(state)
 }
 
@@ -299,6 +304,37 @@ async fn probe_js(State(state): State<AppState>) -> Result<Response, RouteError>
         source,
     )
         .into_response())
+}
+
+/// Serve the service worker, stamped `dev`.
+///
+/// The same embedded template the exporter ships, with the version token
+/// replaced by a name no build can produce. Three things follow from that, all
+/// wanted: anyone who opens this file in devtools can see at a glance that this
+/// instance's cache is not a production one; a browser that visited a real
+/// deploy first will not confuse the two caches; and the worker itself reads
+/// the stamp and refuses to keep anything — `cargo run` without `UI_SERVO_DEV`
+/// is a non-dev server, so its pages *do* register this, and a cache-first
+/// worker on `127.0.0.1` with a version that never changes would hide every
+/// subsequent asset edit behind it. See `EPHEMERAL` in `src/sw.js`.
+///
+/// `no-store`, like `probe.js` and for a sharper reason: a worker outlives the
+/// page that registered it, so a cached copy of this file would keep serving a
+/// version of the site the developer edited away an hour ago — and would do it
+/// from behind the very cache that makes the staleness invisible.
+async fn service_worker() -> Response {
+    (
+        StatusCode::OK,
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/javascript; charset=utf-8"),
+            ),
+            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+        ],
+        crate::export::SW_TEMPLATE.replace(crate::export::SW_VERSION_PLACEHOLDER, "dev"),
+    )
+        .into_response()
 }
 
 fn port_from_env() -> Result<u16, StartupError> {
@@ -631,5 +667,42 @@ mod tests {
         let (_, plain) = get("/", false).await;
         assert!(!plain.contains("__UI_SERVO__"));
         assert!(!plain.contains("probe.js"));
+
+        // And the other direction, on the same flag: the service worker is the
+        // probe's inverse. A worker registered during a measured run would hold
+        // the previous render in a cache the loop cannot see, so the page under
+        // measurement would stop being the page the server just built.
+        assert!(
+            !dev.contains("sw-register.js"),
+            "a dev page registers the service worker"
+        );
+        assert!(
+            plain.contains("src=\"/assets/sw-register.js\""),
+            "a non-dev page does not register the service worker — the export is byte-identical \
+             to this page, so it would ship without offline support"
+        );
+    }
+
+    /// The worker is served from the document root, stamped, and uncacheable.
+    ///
+    /// The root is the contract: a worker's scope is its own directory, and one
+    /// served from `/assets/` could not answer a navigation however correct the
+    /// rest of it was. `dev` as the version keeps this instance's cache name
+    /// apart from any real build's.
+    #[tokio::test]
+    async fn the_service_worker_is_served_at_the_root_stamped_dev() {
+        let (status, body) = get("/sw.js", false).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains(crate::export::SW_VERSION_PLACEHOLDER),
+            "the served worker is unstamped"
+        );
+        assert!(body.contains("VERSION = 'dev'"), "{body:.200}");
+        assert!(body.contains("CACHE_PREFIX + VERSION"), "{body:.200}");
+
+        let (_, content_type) = header_of("/sw.js", header::CONTENT_TYPE).await;
+        assert_eq!(content_type, "text/javascript; charset=utf-8");
+        let (_, cache_control) = header_of("/sw.js", header::CACHE_CONTROL).await;
+        assert_eq!(cache_control, "no-store");
     }
 }

@@ -60,6 +60,9 @@ pub fn shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Markup {
                 @if state.dev() {
                     (probe_boot(state))
                 }
+                @if !state.dev() {
+                    (sw_register())
+                }
             }
             body {
                 a href="#main" { "Skip to content" }
@@ -116,6 +119,9 @@ pub fn portfolio_shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Ma
                 script src="/assets/portfolio.js" defer {}
                 @if state.dev() {
                     (probe_boot(state))
+                }
+                @if !state.dev() {
+                    (sw_register())
                 }
             }
             body {
@@ -278,6 +284,24 @@ fn pwa_head() -> Markup {
         meta name="theme-color" content="#08090b";
         meta name="apple-mobile-web-app-capable" content="yes";
         meta name="apple-mobile-web-app-status-bar-style" content="black-translucent";
+    }
+}
+
+/// The prod-only service-worker registration — the exact inverse of
+/// [`probe_boot`], and gated on the same flag from the other side.
+///
+/// Not export-only. `AppState::for_export` forces dev off, and the export test
+/// asserts the written page is byte-for-byte the page a non-dev server serves;
+/// a script that appeared only in `dist/` would make those two documents
+/// different things wearing one name. So the condition is `!dev`: on in
+/// production, on in a non-dev server, off wherever the loop is measuring.
+///
+/// Deferred, and therefore invisible: it renders nothing, blocks nothing, and
+/// occupies no layout. The only thing it changes about the page is what happens
+/// to it after the network goes away.
+fn sw_register() -> Markup {
+    html! {
+        script src="/assets/sw-register.js" defer {}
     }
 }
 

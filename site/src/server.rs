@@ -233,6 +233,7 @@ pub fn content_type_of(path: &std::path::Path) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("js") => "text/javascript; charset=utf-8",
         Some("json") => "application/json",
+        Some("webmanifest") => "application/manifest+json",
         Some("wasm") => "application/wasm",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
@@ -543,6 +544,11 @@ mod tests {
         for (path, content_type) in [
             ("/assets/kennedy-mosoti-resume.pdf", "application/pdf"),
             ("/assets/favicon.svg", "image/svg+xml"),
+            ("/assets/manifest.webmanifest", "application/manifest+json"),
+            ("/assets/icons/icon-192.png", "image/png"),
+            ("/assets/icons/icon-512.png", "image/png"),
+            ("/assets/icons/icon-512-maskable.png", "image/png"),
+            ("/assets/icons/apple-touch-180.png", "image/png"),
         ] {
             let (status, actual) = header_of(path, header::CONTENT_TYPE).await;
             assert_eq!(status, StatusCode::OK, "{path}");
@@ -559,6 +565,8 @@ mod tests {
             "/assets/fonts/fonts.css",
             "/assets/portfolio.css",
             "/assets/portfolio.js",
+            "/assets/manifest.webmanifest",
+            "/assets/icons/apple-touch-180.png",
         ] {
             assert!(page.contains(href), "the shell no longer references {href}");
             let (status, _) = get(href, false).await;
@@ -575,6 +583,12 @@ mod tests {
             "/assets/site.css",
             "/assets/htmx.min.js",
             "/assets/islands/loader.js",
+            // Owner-allowed exception (batch, 2026-08-09): tokens.css has
+            // always declared "JetBrains Mono" for this shell; /about now
+            // actually loads the webfont it asks for.
+            "/assets/fonts/fonts.css",
+            "/assets/manifest.webmanifest",
+            "/assets/icons/apple-touch-180.png",
         ] {
             assert!(page.contains(href), "the shell no longer references {href}");
             let (status, _) = get(href, false).await;
@@ -583,6 +597,25 @@ mod tests {
                 StatusCode::OK,
                 "the shell references {href}, which 404s"
             );
+        }
+    }
+
+    /// Both shells promise the same installable identity — `layout::pwa_head`
+    /// is the one place that draws it, so this is really one assertion (the
+    /// two shells agree) checked five substrings deep.
+    #[tokio::test]
+    async fn both_shells_declare_the_pwa_head() {
+        for path in ["/", "/about"] {
+            let (_, page) = get(path, false).await;
+            for needle in [
+                r#"link rel="manifest" href="/assets/manifest.webmanifest""#,
+                r#"link rel="apple-touch-icon" href="/assets/icons/apple-touch-180.png""#,
+                r##"meta name="theme-color" content="#08090b""##,
+                r#"meta name="apple-mobile-web-app-capable" content="yes""#,
+                r#"meta name="apple-mobile-web-app-status-bar-style" content="black-translucent""#,
+            ] {
+                assert!(page.contains(needle), "{path} is missing {needle:?}");
+            }
         }
     }
 

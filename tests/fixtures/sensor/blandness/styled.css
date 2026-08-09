@@ -1,57 +1,74 @@
-/* ember-terminal: direction.toml v1, resolved to sRGB and to its own scales.
-   Palette OKLCH -> sRGB: background 0.16/0.022/52, surface 0.225/0.026/54,
-   text 0.94/0.014/84, muted 0.72/0.021/72, accent 0.80/0.185/78.
-   Spacing steps: 8 x 1.5^n. Type steps: 17 x 1.25^n. Radius: none, ever. */
+/* ember-terminal: direction.toml v2 (ember-terminal-mono), resolved to sRGB
+   and to its own scales — the browser-rendered twin of the hand-derived
+   tests/fixtures/blandness/candidate_styled.json, element for element.
+   Palette OKLCH -> sRGB (the hex sources recorded in direction.toml):
+   background 0.149/0.005/264.5 -> #0a0b0d, surface 0.199/0.007/258.4 -> #141619,
+   text 0.923/0.014/84.6 -> #eae5db, muted 0.651/0.011/252.9 -> #8b9096,
+   border 0.283/0.011/254.0 -> #262a2f, accent 0.727/0.176/41.2 -> #ff7a45,
+   accent-2 0.802/0.151/78.9 -> #f2b134.
+   Type steps: 14.5 x 1.25^n (11.6 / 14.5 / 18.125 / 22.6562 / 44.2505).
+   Spacing steps: 8 x 1.5^n (5.33 / 8 / 12 / 18 / 27 / 40.5).
+   One voice: display IS the mono face. Radius: none, ever. */
 :root { color-scheme: dark; }
 
 body {
   margin: 0;
-  background: #150b05;
-  color: #f0ebe1;
-  font: 17px/1.55 "IBM Plex Sans", system-ui, sans-serif;
+  background: #0a0b0d;
+  color: #eae5db;
+  font: 14.5px/1.55 "JetBrains Mono", "Fira Code", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .masthead {
   padding: 40.5px 27px;
-  background: #150b05;
-  color: #f0ebe1;
+  margin: 0 0 18px;
+  background: #0a0b0d;
+  color: #eae5db;
   border-radius: 0;
 }
 
 .display {
-  margin: 0 0 18px;
-  font-family: "Instrument Serif", ui-serif, Georgia, serif;
-  font-size: 41.5px;
-  font-weight: 400;
+  margin: 0 0 27px;
+  font-family: "JetBrains Mono", "Fira Code", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 44.2505px;
+  font-weight: 700;
   line-height: 1.05;
-  color: #f0ebe1;
+  color: #eae5db;
 }
 
 .standfirst {
-  margin: 0 0 27px;
-  font-size: 21.25px;
-  color: #f0ebe1;
+  margin: 0 0 18px;
+  font-size: 22.6562px;
+  color: #8b9096;
 }
 
 .body {
-  margin: 0 0 27px;
-  font-size: 17px;
-  color: #ada397;
+  margin: 0 0 18px;
+  padding: 0 0 12px;
+  font-size: 18.125px;
+  color: #eae5db;
   max-width: 68ch;
 }
 
 .link-accent {
   display: inline-block;
-  padding: 8px 12px;
-  color: #fdab00;
-  background: #251810;
+  padding: 12px 8px;
+  color: #ff7a45;
+  background: #0a0b0d;
   border-radius: 0;
-  font-size: 17px;
+  font-size: 14.5px;
   text-decoration: none;
+}
+
+.link-accent:focus-visible {
+  padding: 8px 5.33px;
+  color: #f2b134;
+  background: #141619;
+  font-size: 11.6px;
+  outline: 1px solid #f2b134;
 }
 
 .rule {
   margin: 27px 0 0;
   border: 0;
-  border-top: 1px solid #413227;
+  border-top: 1px solid #262a2f;
 }

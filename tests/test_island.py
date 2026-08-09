@@ -358,19 +358,24 @@ def test_the_sandbox_is_mounted_inside_the_pages_span(base_url: str) -> None:
     assert '/assets/islands/loader.js"' in markup
 
 
-def test_the_loader_is_on_every_page_and_the_island_is_not(base_url: str) -> None:
-    """`/` carries the loader and mounts nothing.
+def test_the_loader_stops_at_the_classic_shells_edge(base_url: str) -> None:
+    """`/` pays no island bytes; `/about` carries the loader and pre-mounts
+    only the sandbox.
 
-    The script is unconditional in the shell so that htmx can swap an island
-    into a page that did not start with one. That is only worth its bytes if it
-    is actually on a page with no island, and this is the assertion that keeps
-    it there -- and that keeps `/` honest about no longer mounting the
-    constellation it once did.
+    The old rationale -- loader unconditional in the shell so htmx can swap an
+    island into any page -- ended with the golden-path port (owner,
+    2026-08-09): `/` and the deep-dives wear the portfolio shell, which ships
+    neither htmx nor islands, so a loader there would be dead bytes on the
+    heaviest pages. This is the assertion that keeps the boundary honest in
+    both directions.
     """
-    markup = fetch(f"{base_url}{HOME}")
-    assert '/assets/islands/loader.js"' in markup
-    assert "<resume-sandbox" not in markup
-    assert "<ui-constellation" not in markup
+    home = fetch(f"{base_url}{HOME}")
+    assert '/assets/islands/loader.js"' not in home
+    assert "<resume-sandbox" not in home
+    assert "<ui-constellation" not in home
+    about = fetch(f"{base_url}{ABOUT}")
+    assert '/assets/islands/loader.js"' in about
+    assert "<ui-constellation" not in about
 
 
 def test_the_element_upgrades_and_opens_on_the_sample(browser: Browser, base_url: str) -> None:

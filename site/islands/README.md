@@ -195,6 +195,30 @@ nothing else in this crate's reach recovers more. The honest fix is a second
 `cdylib` so a page with only a constellation on it does not pay for a JSON
 parser, and that is an integration decision, not this crate's.
 
+**Batch, 2026-08-09 (`batch/island-diet`).** Two things this section
+predicted but the build never did: `opt-level = "z"` was landed, and
+wasm-pack was told to run wasm-opt at all — `[package.metadata.wasm-pack.
+profile.release] wasm-opt = ["-Oz", "--strip-debug", "--strip-producers"]`,
+which it silently skips without that table. Together they took the committed
+artefact from 174,329 B raw / 73,218 B gzipped to 166,465 B raw / 72,184 B
+gzipped (-4.5 % raw). `--strip-producers` is the only section either flag
+actually removes here — this build never carried a `name` section to begin
+with, so "strip the name section" was not a lever this crate had to pull.
+`panic = "abort"` was tried too, alone and stacked on `opt-level = "z"`: on
+`wasm32-unknown-unknown`, which cannot unwind regardless of the flag, it
+moved raw size by 0 to +100 B and gzip by a few dozen bytes either way —
+noise, not a lever — so it was left out rather than carried for a behaviour
+change with nothing to show for it. The `/rustc/…` and `.cargo/registry/…`
+paths `strings` still turns up after both flags are `#[track_caller]`
+panic-location data baked into std and dependency call sites, not
+name-section bloat; this crate's own paths are already relative (`src/lib.
+rs`) and were never the thing making the binary bigger. The panic hook was
+re-verified against the new profile with a standalone harness driving
+`?panic=1` outside the checked-in suite (which no longer mounts
+`<ui-constellation>` anywhere a browser test reaches): `ui-servo:wasm-panic`
+still carries the Rust message and `src/lib.rs:432:9` location, and the
+follow-on `ui-servo:ce-error` phase `panic` still lands after it.
+
 ### Styling, and what the token sheet could not say
 
 Every class the island puts in the DOM is one `site.css` declares — the probe

@@ -549,9 +549,26 @@ mod tests {
             assert_eq!(actual, content_type, "{path}");
         }
 
-        // Every asset the shell asks for on every page load, so a rename shows
-        // up here rather than as a silent 404 in somebody's console.
+        // Every asset the portfolio shell asks for on every page load, so a
+        // rename shows up here rather than as a silent 404 in somebody's
+        // console. `/about` still wears the classic shell, so its assets are
+        // checked against it separately.
         let (_, page) = get("/", false).await;
+        for href in [
+            "/assets/favicon.svg",
+            "/assets/fonts/fonts.css",
+            "/assets/portfolio.css",
+            "/assets/portfolio.js",
+        ] {
+            assert!(page.contains(href), "the shell no longer references {href}");
+            let (status, _) = get(href, false).await;
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "the shell references {href}, which 404s"
+            );
+        }
+        let (_, page) = get("/about", false).await;
         for href in [
             "/assets/favicon.svg",
             "/assets/tokens.css",

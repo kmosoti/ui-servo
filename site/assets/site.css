@@ -373,6 +373,7 @@ textarea {
 .bg-border { background-color: var(--color-border); }
 .bg-accent { background-color: var(--color-accent); }
 .bg-accent-2 { background-color: var(--color-accent-2); }
+.bg-critical { background-color: var(--color-critical); }
 
 .text-background { color: var(--color-background); }
 .text-surface { color: var(--color-surface); }
@@ -381,6 +382,7 @@ textarea {
 .text-border { color: var(--color-border); }
 .text-accent { color: var(--color-accent); }
 .text-accent-2 { color: var(--color-accent-2); }
+.text-critical { color: var(--color-critical); }
 
 .border-background { border-color: var(--color-background); }
 .border-surface { border-color: var(--color-surface); }
@@ -389,6 +391,7 @@ textarea {
 .border-border { border-color: var(--color-border); }
 .border-accent { border-color: var(--color-accent); }
 .border-accent-2 { border-color: var(--color-accent-2); }
+.border-critical { border-color: var(--color-critical); }
 
 /* type */
 .type-xs { font-size: var(--type-xs); }

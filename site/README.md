@@ -173,7 +173,7 @@ probe measures and htmx swaps. Three rules, all mechanically checkable:
    Never hand-roll the root. A swap with two roots has no join key and no
    element-timing entry, which silently blinds the sensor stack.
 2. **Allowlisted classes only.** The vocabulary is exactly what
-   `DirectionContract.class_allowlist_seed()` derives from the tokens — 93
+   `DirectionContract.class_allowlist_seed()` derives from the tokens — 96
    classes: `bg-*`, `text-*`, `border-*`, `type-*`,
    `{p,px,py,m,mx,my,gap}-*`, `duration-*`, `ease-*` — and every one of them is
    declared in `assets/site.css`. Anything else is an unreviewed escape hatch

@@ -3,68 +3,92 @@
 # Every gate, probe and critic compares observed UI against THIS file. It is
 # versioned so that a change of taste is a change of contract (auditable),
 # never an argument in a prompt. Parsed by ui_servo.domain.contract.
+#
+# v2 — the ember-terminal-mono revision. Derived from the owner's stitched
+# experiment (experiments/stitched-portfolio.html): cool near-black ground,
+# monospace as the single voice, molten ember primary, amber counterweight,
+# and a critical red the deep-dive fail states needed a word for. The hex
+# values in the experiment were converted to oklch losslessly; the experiment's
+# ad-hoc durations were NOT admitted — motion stays on the v1 table and
+# artefacts quantise onto it.
 
 [meta]
-version = 1
+version = 2
 name = "ember-terminal"
-revision = "2026-08-05"
+revision = "2026-08-08"
 owner = "kmosoti"
-description = "Deep warm dark, editorial serif display over a plain-spoken text face, molten amber primary with an electric cyan counterweight. A personal site that reads like a well-set page, not a product landing."
+description = "Terminal-mono portfolio: cool near-black ground, one monospace voice at a compact reading size, molten ember primary with an amber counterweight and a reserved critical red. Reads like a well-kept ops console — dense, quiet, evidence-first — never a product landing page."
 
 [palette]
 space = "oklch"
 
+# #0a0b0d — the experiment's page ground.
 [palette.background]
-l = 0.16
-c = 0.022
-h = 52.0
+l = 0.149
+c = 0.005
+h = 264.5
 
+# #141619 — the experiment's elevated panel ground.
 [palette.surface]
-l = 0.225
-c = 0.026
-h = 54.0
+l = 0.199
+c = 0.007
+h = 258.4
 
+# #eae5db — warm off-white; the one warm neutral against the cool ground.
 [palette.text]
-l = 0.94
+l = 0.923
 c = 0.014
-h = 84.0
+h = 84.6
 
+# #8b9096
 [palette.muted]
-l = 0.72
-c = 0.021
-h = 72.0
+l = 0.651
+c = 0.011
+h = 252.9
 
+# #262a2f
 [palette.border]
-l = 0.33
-c = 0.028
-h = 56.0
+l = 0.283
+c = 0.011
+h = 254.0
 
+# #ff7a45 — the ember. The only colour allowed to ask for attention.
 [palette.accent]
-l = 0.80
-c = 0.185
-h = 78.0
+l = 0.727
+c = 0.176
+h = 41.2
 
+# #f2b134 — amber. Warning states, status badges, the second voice.
 [palette.accent-2]
-l = 0.72
-c = 0.148
-h = 206.0
+l = 0.802
+c = 0.151
+h = 78.9
+
+# #ef4759 — critical red. Fail states in the flow simulators and nothing else;
+# a page with no failures on it shows no red.
+[palette.critical]
+l = 0.643
+c = 0.203
+h = 19.2
 
 [type]
 ratio = 1.25
-base_px = 17.0
+base_px = 14.5
 rem_base_px = 16.0
 
+# One voice: the display face IS the mono face. Hierarchy comes from scale,
+# weight and the ember — not from a second family.
 [type.display_family]
-name = "Instrument Serif"
-fallbacks = ["ui-serif", "Iowan Old Style", "Georgia", "serif"]
+name = "JetBrains Mono"
+fallbacks = ["Fira Code", "IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"]
 
 [type.text_family]
-name = "IBM Plex Sans"
-fallbacks = ["system-ui", "-apple-system", "Segoe UI", "sans-serif"]
+name = "JetBrains Mono"
+fallbacks = ["Fira Code", "IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"]
 
 [type.mono_family]
-name = "IBM Plex Mono"
-fallbacks = ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"]
+name = "JetBrains Mono"
+fallbacks = ["Fira Code", "IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"]
 
 [type.steps]
 xs = -2
@@ -95,6 +119,13 @@ xl = 3
 animatable_properties = ["transform", "opacity"]
 reduced_motion_required = true
 
+# Unchanged from v1 on purpose. The stitched experiment used 200/250/300/350/
+# 400/420ms and a hand-typed cubic-bezier; those exact milliseconds were never
+# the design, and admitting them would make the table a transcript instead of
+# a constraint. Builders quantise: log-line entrances to `slow`, token travel
+# to `deliberate`. Height/colour transitions in the experiment are not admitted
+# at all — disclosures re-layout instantly and reveal content with
+# opacity/transform; state-colour changes snap.
 [motion.durations_ms]
 quick = 90
 base = 140
@@ -149,13 +180,13 @@ axes = ["motion", "hierarchy"]
 [[references]]
 name = "brutalist-type"
 url = "https://brutalistwebsites.com"
-note = "Type as structure: oversized display setting carries the hierarchy instead of boxes and shadows."
+note = "Type as structure: the scale and weight of a single face carry the hierarchy instead of boxes and shadows."
 axes = ["type", "hierarchy"]
 
 [[references]]
-name = "editorial-serif-longform"
+name = "terminal-editorial"
 url = "https://www.are.na"
-note = "Editorial: generous measure, real paragraph rhythm, links that read as prose."
+note = "Editorial rhythm at a compact size: generous measure, real paragraph rhythm, links that read as prose — the console aesthetic must still read like a page."
 axes = ["type", "density"]
 
 [[anti_references]]
@@ -181,3 +212,9 @@ name = "ai-purple-gradient"
 url = "https://vercel.com/templates"
 note = "Violet-to-cyan gradient text, glassmorphic cards, glow on every border. Default-model taste."
 axes = ["color", "motion"]
+
+[[anti_references]]
+name = "hacker-theatre"
+url = "https://hackertyper.net"
+note = "Terminal as costume: green-on-black matrix rain, fake scanlines, ASCII borders around everything, blinking everywhere. The console aesthetic collapses into cosplay the moment motion or ornament stops carrying information."
+axes = ["motion", "hierarchy"]

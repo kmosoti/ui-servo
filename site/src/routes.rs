@@ -67,11 +67,23 @@ pub const ASSETS: &str = "/assets";
 
 /// Every route the site answers. The order is the order the router registers
 /// them in, which for axum is not significant — it is grouped for reading.
-pub const ROUTES: [Route; 7] = [
+pub const ROUTES: [Route; 9] = [
     Route {
         path: "/",
         kind: RouteKind::Page {
             render: pages::home::render,
+        },
+    },
+    Route {
+        path: "/projects/blackcell",
+        kind: RouteKind::Page {
+            render: pages::blackcell::render,
+        },
+    },
+    Route {
+        path: "/projects/splunk-dashboard-studio",
+        kind: RouteKind::Page {
+            render: pages::splunk_studio::render,
         },
     },
     Route {
@@ -239,10 +251,15 @@ mod tests {
     fn exportable_routes_land_on_index_html() {
         let paths: Vec<Option<String>> = ROUTES.iter().map(Route::output_path).collect();
         assert_eq!(paths[0].as_deref(), Some("index.html"));
-        assert_eq!(paths[1].as_deref(), Some("about/index.html"));
-        assert_eq!(paths[2].as_deref(), Some("projects/index.html"));
-        assert_eq!(paths[3].as_deref(), Some("writing/index.html"));
-        for route in ROUTES.iter().skip(4) {
+        assert_eq!(paths[1].as_deref(), Some("projects/blackcell/index.html"));
+        assert_eq!(
+            paths[2].as_deref(),
+            Some("projects/splunk-dashboard-studio/index.html")
+        );
+        assert_eq!(paths[3].as_deref(), Some("about/index.html"));
+        assert_eq!(paths[4].as_deref(), Some("projects/index.html"));
+        assert_eq!(paths[5].as_deref(), Some("writing/index.html"));
+        for route in ROUTES.iter().skip(6) {
             assert_eq!(route.output_path(), None, "{} is not a file", route.path);
         }
     }

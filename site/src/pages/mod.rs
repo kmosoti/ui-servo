@@ -24,7 +24,10 @@ use crate::span::new_span_id;
 use maud::{Markup, html};
 
 pub mod about;
+pub mod blackcell;
+pub mod deepdive;
 pub mod home;
+pub mod splunk_studio;
 
 /// A swap target. Carries its own span id so that an htmx swap always resolves
 /// to *some* join key, even in the instant between removing the old fragment

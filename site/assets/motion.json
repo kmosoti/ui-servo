@@ -2,8 +2,8 @@
   "_generated_by": "uv run python -c (see site/README.md) from ui_servo.domain.contract.motion_table()",
   "contract": {
     "name": "ember-terminal",
-    "version": 1,
-    "revision": "2026-08-05"
+    "version": 2,
+    "revision": "2026-08-08"
   },
   "durations": [
     90,

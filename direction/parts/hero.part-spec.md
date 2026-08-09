@@ -1,36 +1,38 @@
-# Part: hero (real content — supersedes demo/hero.part-spec.md)
+# Part: hero (v2 — terminal hero; supersedes the 2026-08-05 spec)
 
-The first thing on `/` at mosoti.dev. It has to say who this is and what they
-do, in the ember-terminal direction: warm dark ground, one amber primary, one
-cyan counterweight, editorial serif display against plain-spoken prose.
+Read `_conventions.md` first. The first thing on `/` at mosoti.dev: a
+terminal frame whose prompt line answers `$ whoami`.
 
-Who this is, factually — copy may compress but not contradict:
+What it renders, from the prototype's own copy:
 
-- **Kennedy Mosoti**, Dallas–Fort Worth, TX.
-- Observability platform engineer; infrastructure automation; small tools and
-  agent tooling that make messy systems easier to inspect.
-- Owner's rule on tools: **do not name specific tools** (no "Salt", no vendor
-  names). A tool is incidental; the skill — designing automation and telemetry
-  that can be inspected and trusted — is what the copy highlights.
-- The site is a personal portfolio, not a brochure and not a manifesto.
-- Owner's explicit voice direction: **don't make it sound ceremonial.** The old
-  site staged "Make the machine admit what it is doing" as a standing thesis;
-  the owner has read that framing and pushed back on the ceremony. The idea may
-  survive only if it reads like a person talking about their work in passing —
-  never set apart as a thesis line, a motto, or display-serif scripture. Plain
-  speech beats gravitas on every axis.
-- The transformation ledger (`confusion -> structure`, `hidden state ->
-  telemetry`, …) is raw material, optional, and carries the same risk: as a
-  monument it is ceremony; as a small aside it can work.
+- A prompt line: `$ whoami` in accent, followed by a caret. The caret is a
+  **static block** — the v2 contract has no 1s duration, so it does not
+  blink. Do not fake a blink with JS style toggles; that is evading the
+  motion table, not satisfying it.
+- The answer, display-scale: **kennedy.mosoti — observability platform
+  engineer, branching into agentic engineering**.
+- One thesis line, muted, plain: *Building the thing is easy. Knowing if
+  it's working is the actual job.* This is the owner's own sentence in their
+  own prototype — it stays conversational in size and weight; it must not be
+  set apart as display-serif scripture (there is no serif anymore, and no
+  pullquote treatment here either).
 
-Requirements:
-- One `<section>` root carrying `data-span-id`.
-- Allowlisted utility classes only; motion through tokens or not at all.
-- A display-scale name, one line of position that places him (city and craft),
-  and no more than two supporting paragraphs. A hero that needs three
-  paragraphs is an about page.
-- It must not read as a product landing page. `bg-surface` + `border-border`
-  framing is the anti-reference: a card is a component, not a person.
-- No invented employers, titles, or locations. "Nairobi" appearing anywhere is
-  an automatic gate failure — that was demo copy, and this part is the reason
-  the round is being re-run.
+Progressive enhancement: the full text is server-rendered and complete with
+JS off. A typing effect may replay it on load (JS `textContent`, not CSS
+animation), and must render everything instantly when
+`prefers-reduced-motion` matches.
+
+Hard rules carried over from v1, still in force:
+
+- **No tool or vendor names in the hero.** Certifications live in the
+  cred-row part, not here. The typed title above contains none; keep it so.
+- No invented employers, titles, or locations. "Nairobi" appearing anywhere
+  is an automatic gate failure — that was demo copy once, and this line is
+  the reason the rule is written down.
+- Kennedy Mosoti is in Dallas–Fort Worth, TX. The hero may say so or stay
+  silent; it may not say otherwise.
+- One `<section>` root with a span id; a hero that needs three paragraphs is
+  an about page.
+- The terminal frame may sit on `bg-surface` with a `border-border` hairline
+  — that is the one card-shaped thing on the page, and it is a *terminal*,
+  not a product card. Nothing else in the hero gets a box.

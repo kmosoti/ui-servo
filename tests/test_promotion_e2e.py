@@ -266,9 +266,11 @@ class TestTamperingIsRefused:
             fragment_status, _ = _get(port, "/fragments/promoted/hero")
             home_status, home = _get(port, "/")
         assert fragment_status == 500
-        # The page fails rather than falling back: "nobody picked yet" and
-        # "someone edited the pick" must not look the same to a visitor.
-        assert home_status == 500
+        # Since the golden-path port (2026-08-09) the home page no longer
+        # mounts promoted fragments, so a tampered pick cannot poison `/` at
+        # all: the page stays healthy and the smuggled bytes never render.
+        # The endpoint itself is still the wall — asserted above.
+        assert home_status == 200
         assert "smuggled" not in home
 
     def test_a_fragment_with_no_provenance_is_refused(self, hero_file: Path) -> None:

@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: #08090b; }
+  body { -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; }
+  a { color: #ff7a45; text-decoration: none; }
+  a:hover { color: #ffa077; }
+  ::selection { background: #ff7a45; color: #140904; }
+  @keyframes km-blink { 50% { opacity: 0; } }
+  @keyframes km-line { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  [data-print-doc] { display: none; }
+  @media print {
+    [data-print-hide] { display: none !important; }
+    [data-print-doc] { display: block !important; }
+    html, body { background: #fff !important; color: #111 !important; min-height: 0 !important; }
+    x-dc, [data-print-reset] { background: #fff !important; background-image: none !important; color: #111 !important; min-height: 0 !important; overflow: visible !important; }
+    [data-print-doc] { color: #111 !important; }
+    @page { margin: 14mm 15mm; }
+  }
+</style>
+</helmet>
+
+<div data-print-reset="1" style="position:relative; min-height:100vh; background:#08090b; color:#ece7dd; font-family:'Public Sans',system-ui,sans-serif; font-size:16px; line-height:1.6; overflow-x:clip;">
+
+  <canvas ref="{{ canvasL }}" data-print-hide="1" style="position:fixed; top:0; left:0; width:190px; height:100vh; pointer-events:none; z-index:0; opacity:.6; display:{{ bgShow }};"></canvas>
+  <canvas ref="{{ canvasR }}" data-print-hide="1" style="position:fixed; top:0; right:0; width:190px; height:100vh; pointer-events:none; z-index:0; opacity:.6; display:{{ bgShow }};"></canvas>
+
+  <header data-print-hide="1" style="position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px clamp(20px,4vw,44px); background:rgba(8,9,11,.86); backdrop-filter:blur(16px); border-bottom:1px solid #1b1f24;">
+    <a href="#" onClick="{{ goHome }}" style="display:flex; align-items:center; gap:10px; color:#ece7dd; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; letter-spacing:.06em; text-decoration:none;">
+      <span style="width:7px; height:7px; border-radius:50%; background:#ff7a45; box-shadow:0 0 10px 2px rgba(255,122,69,.55);"></span>KM
+    </a>
+    <nav style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+      <a href="#" onClick="{{ goHome }}" style="padding:6px 11px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.04em; text-decoration:none; color:{{ navS.home.c }}; background:{{ navS.home.b }};" style-hover="color:#ece7dd">profile</a>
+      <a href="#" onClick="{{ goBC }}" style="padding:6px 11px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.04em; text-decoration:none; color:{{ navS.bc.c }}; background:{{ navS.bc.b }};" style-hover="color:#ece7dd">blackcell</a>
+      <a href="#" onClick="{{ goSP }}" style="padding:6px 11px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.04em; text-decoration:none; color:{{ navS.sp.c }}; background:{{ navS.sp.b }};" style-hover="color:#ece7dd">dashboard-studio</a>
+    </nav>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div style="display:flex; align-items:center; border:1px solid #24282e; border-radius:5px; overflow:hidden;">
+        <button onClick="{{ setDirA }}" style="padding:5px 10px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:11px; color:{{ dirS.a.c }}; background:{{ dirS.a.b }};">1a</button>
+        <button onClick="{{ setDirB }}" style="padding:5px 10px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:11px; color:{{ dirS.b.c }}; background:{{ dirS.b.b }};">1b</button>
+      </div>
+      <button onClick="{{ toggleReduced }}" title="reduced motion" style="padding:6px 10px; border:1px solid #24282e; border-radius:5px; cursor:pointer; background:transparent; font-family:'JetBrains Mono',monospace; font-size:11px; color:{{ motionColor }};">motion {{ motionLabel }}</button>
+      <div style="position:relative;">
+        <button onClick="{{ toggleResume }}" style="padding:6px 12px; border:1px solid #ff7a45; border-radius:5px; cursor:pointer; background:rgba(255,122,69,.1); font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:#ff7a45;">résumé ↓</button>
+        <div style="position:absolute; top:38px; right:0; width:230px; padding:6px; border:1px solid #24282e; border-radius:6px; background:#101215; box-shadow:0 18px 40px rgba(0,0,0,.6); display:{{ resumeMenu }};">
+          <button onClick="{{ printResume }}" style="display:block; width:100%; text-align:left; padding:9px 10px; border:0; border-radius:4px; cursor:pointer; background:transparent; color:#ece7dd; font-family:'JetBrains Mono',monospace; font-size:12px;" style-hover="background:#16191d">print / save as PDF</button>
+          <button onClick="{{ downloadJSON }}" style="display:block; width:100%; text-align:left; padding:9px 10px; border:0; border-radius:4px; cursor:pointer; background:transparent; color:#ece7dd; font-family:'JetBrains Mono',monospace; font-size:12px;" style-hover="background:#16191d">download résumé.json</button>
+          <div style="padding:6px 10px 4px; color:#6e747b; font-family:'JetBrains Mono',monospace; font-size:10.5px; line-height:1.5;">both generated from the same source data as this page</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+  <main data-print-hide="1" style="position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 clamp(20px,4vw,44px) 120px;">
+
+    <sc-if value="{{ dirA }}" hint-placeholder-val="{{ true }}">
+    <section style="padding:72px 0 48px;">
+      <div style="border:1px solid #24282e; border-radius:10px; background:#101215; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.45);">
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid #1b1f24; background:#0c0e11; font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; letter-spacing:.04em;">
+          <span style="width:6px; height:6px; border-radius:50%; background:#ff7a45;"></span>
+          kennedy@observability — zsh — 96×28
+        </div>
+        <div style="padding:34px clamp(20px,4vw,42px) 38px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:13.5px; color:#9aa0a7;">
+            <span style="color:#ff7a45; margin-right:8px;">$</span>{{ typedCmd }}<span style="display:inline-block; width:8px; height:14px; margin-left:2px; vertical-align:-2px; background:#ff7a45; animation:{{ caretAnim }};"></span>
+          </div>
+          <h1 style="margin:24px 0 0; font-size:clamp(38px,5.6vw,60px); line-height:1.02; font-weight:800; letter-spacing:-.03em; text-wrap:balance;">Kennedy Mosoti</h1>
+          <p style="margin:14px 0 0; font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:.04em; color:#ff7a45; text-transform:uppercase;">observability platform engineer / branching into agentic engineering</p>
+          <p style="margin:26px 0 0; max-width:640px; font-size:22px; line-height:1.42; color:#ece7dd; font-weight:400; text-wrap:pretty;">Building the thing is easy. Knowing if it's working is the actual job.</p>
+        </div>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:20px;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:5px 10px;">B.S. Software Engineering — UT Arlington</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:5px 10px;">Splunk Certified Admin</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:5px 10px;">Splunk Power User</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:5px 10px;">Cribl Certified User</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:5px 10px;">AWS Solutions Architect — Associate</span>
+      </div>
+    </section>
+    </sc-if>
+
+    <sc-if value="{{ dirB }}" hint-placeholder-val="{{ false }}">
+    <section style="display:grid; grid-template-columns:minmax(0,1.55fr) minmax(0,1fr); gap:clamp(28px,5vw,64px); align-items:end; padding:96px 0 56px; border-bottom:1px solid #1b1f24;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#6e747b; margin-bottom:28px;">
+          <span style="color:#ff7a45; margin-right:8px;">$</span>{{ typedCmd }}<span style="display:inline-block; width:7px; height:12px; margin-left:2px; vertical-align:-1px; background:#ff7a45; animation:{{ caretAnim }};"></span>
+        </div>
+        <h1 style="margin:0; font-size:clamp(48px,8.4vw,104px); line-height:.92; font-weight:800; letter-spacing:-.045em;">Kennedy<br>Mosoti</h1>
+        <p style="margin:28px 0 0; max-width:560px; font-size:clamp(20px,2.4vw,27px); line-height:1.34; color:#ece7dd; text-wrap:pretty;">Building the thing is easy. <span style="color:#ff7a45;">Knowing if it's working is the actual job.</span></p>
+        <p style="margin:22px 0 0; font-family:'JetBrains Mono',monospace; font-size:12.5px; letter-spacing:.05em; color:#9aa0a7; text-transform:uppercase;">observability platform engineer · branching into agentic engineering</p>
+      </div>
+      <div style="border-left:1px solid #24282e; padding-left:clamp(18px,2.5vw,28px);">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.09em; color:#6e747b; text-transform:uppercase; margin-bottom:16px;">credentials</div>
+        <div style="display:flex; flex-direction:column; gap:11px; font-size:14px; color:#9aa0a7;">
+          <div>B.S. Software Engineering<br><span style="color:#6e747b; font-size:12.5px;">UT Arlington</span></div>
+          <div>Splunk Certified Admin</div>
+          <div>Splunk Power User</div>
+          <div>Cribl Certified User</div>
+          <div>AWS Solutions Architect — Associate</div>
+        </div>
+      </div>
+    </section>
+    </sc-if>
+
+    <section style="padding:8px 0 64px;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase;">instrumentation — this page, measured live</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">every number below is read from the browser. nothing here is fabricated.</div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px; background:#1b1f24; border:1px solid #24282e; border-radius:8px; overflow:hidden;">
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">ttfb</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em;">{{ m.ttfb }}</div>
+        </div>
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">dom nodes</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em;">{{ m.nodes }}</div>
+        </div>
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">dom ready</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em;">{{ m.dom }}</div>
+        </div>
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">render</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em; color:{{ m.fpsColor }};">{{ m.fps }}</div>
+        </div>
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">resources</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em;">{{ m.res }}</div>
+        </div>
+        <div style="background:#101215; padding:16px 18px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:6px;">session</div>
+          <div style="font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.02em; color:#ff7a45;">{{ m.up }}</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:0 0 72px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin-bottom:10px;">experience — an append-only log</div>
+      <h2 style="margin:0 0 32px; font-size:clamp(28px,3.4vw,38px); font-weight:700; letter-spacing:-.025em;">Where the tags come from</h2>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:28px; padding:26px 0 34px; border-top:1px solid #24282e; border-bottom:1px solid #24282e; margin-bottom:34px;">
+        <div>
+          <div style="font-size:clamp(32px,4vw,44px); font-weight:800; letter-spacing:-.035em; color:#ff7a45; line-height:1;">3,000+</div>
+          <div style="margin-top:8px; font-size:14px; color:#9aa0a7; max-width:230px;">Splunk roles updated by a single Python automation</div>
+        </div>
+        <div>
+          <div style="font-size:clamp(32px,4vw,44px); font-weight:800; letter-spacing:-.035em; color:#ff7a45; line-height:1;">100+</div>
+          <div style="margin-top:8px; font-size:14px; color:#9aa0a7; max-width:230px;">search heads orchestrated through Salt</div>
+        </div>
+        <div>
+          <div style="font-size:clamp(32px,4vw,44px); font-weight:800; letter-spacing:-.035em; color:#ff7a45; line-height:1;">15</div>
+          <div style="margin-top:8px; font-size:14px; color:#9aa0a7; max-width:230px;">on-prem nodes covered by the SHC repave design</div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <article style="border-style:solid; border-width:1px; border-color:{{ itemS.jpmc.bd }}; border-radius:8px; background:#101215; opacity:{{ itemS.jpmc.op }}; transition:opacity .3s, border-color .3s;">
+          <div onClick="{{ onJob.jpmc }}" style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; border:1px solid #24282e; border-radius:3px; padding:3px 7px; flex-shrink:0;">offset 0</span>
+            <span style="flex:1; min-width:0;">
+              <span style="display:block; font-size:17px; font-weight:700; letter-spacing:-.015em;">Netbuilder (JPMC LogA Platform)</span>
+              <span style="display:block; font-size:14px; color:#9aa0a7;">Associate Observability Engineer</span>
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;">Aug 2024 — present</span>
+            <span style="color:#ff7a45; font-size:15px; flex-shrink:0;">{{ itemS.jpmc.icon }}</span>
+          </div>
+          <div style="display:{{ itemS.jpmc.body }}; padding:0 20px 22px;">
+            <p style="margin:0 0 14px; max-width:760px; font-size:15px; color:#9aa0a7; text-wrap:pretty;">Support a centralized, multi-tenant observability platform — Splunk, Logstash, SaltStack, Linux. Work the Kafka → Logstash → Splunk ingestion path: onboarding and sync analysis, stale-topic cleanup, consumer remediation. Automated search-filter updates across 3,000+ Splunk roles in Python, and login-banner orchestration across 100+ search heads in Salt — plus SHC repave design for 15 on-prem nodes. On the reliability side: duplicate-detection to catch config drift before it ships, DR-readiness investigation into cluster-manager failover and NAS bottlenecks, and RCA on farm-break findings down to SELinux-context drift.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b;">
+              <span>splunk</span><span>·</span><span>logstash</span><span>·</span><span>kafka</span><span>·</span><span>salt</span><span>·</span><span>python</span><span>·</span><span>linux</span><span>·</span><span>rca</span><span>·</span><span>drift</span><span>·</span><span>ha/dr</span>
+            </div>
+          </div>
+        </article>
+
+        <article style="border-style:solid; border-width:1px; border-color:{{ itemS.dat.bd }}; border-radius:8px; background:#101215; opacity:{{ itemS.dat.op }}; transition:opacity .3s, border-color .3s;">
+          <div onClick="{{ onJob.dat }}" style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; border:1px solid #24282e; border-radius:3px; padding:3px 7px; flex-shrink:0;">offset 1</span>
+            <span style="flex:1; min-width:0;">
+              <span style="display:block; font-size:17px; font-weight:700; letter-spacing:-.015em;">Data Annotation Tech</span>
+              <span style="display:block; font-size:14px; color:#9aa0a7;">AI Code Evaluation Contractor</span>
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;">Jan 2024 — present</span>
+            <span style="color:#ff7a45; font-size:15px; flex-shrink:0;">{{ itemS.dat.icon }}</span>
+          </div>
+          <div style="display:{{ itemS.dat.body }}; padding:0 20px 22px;">
+            <p style="margin:0 0 14px; max-width:760px; font-size:15px; color:#9aa0a7; text-wrap:pretty;">Evaluate AI-generated code and reasoning — Python, JavaScript, SQL — for correctness, efficiency, maintainability, edge-case handling, and whether it actually did what it was asked. Running in parallel with the day job, not instead of it.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b;"><span>ai-eval</span><span>·</span><span>python</span></div>
+          </div>
+        </article>
+
+        <article style="border-style:solid; border-width:1px; border-color:{{ itemS.aws.bd }}; border-radius:8px; background:#101215; opacity:{{ itemS.aws.op }}; transition:opacity .3s, border-color .3s;">
+          <div onClick="{{ onJob.aws }}" style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; border:1px solid #24282e; border-radius:3px; padding:3px 7px; flex-shrink:0;">offset 2</span>
+            <span style="flex:1; min-width:0;">
+              <span style="display:block; font-size:17px; font-weight:700; letter-spacing:-.015em;">Amazon Web Services</span>
+              <span style="display:block; font-size:14px; color:#9aa0a7;">Associate Solutions Architect</span>
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;">Jan 2023 — Nov 2023</span>
+            <span style="color:#ff7a45; font-size:15px; flex-shrink:0;">{{ itemS.aws.icon }}</span>
+          </div>
+          <div style="display:{{ itemS.aws.body }}; padding:0 20px 22px;">
+            <p style="margin:0 0 14px; max-width:760px; font-size:15px; color:#9aa0a7; text-wrap:pretty;">Advised enterprise customers on AWS architecture — availability, security, scalability, performance. Built a cloud-migration cost-estimation tool and a few cloud-native prototypes. Learned the cloud-infrastructure side properly before circling back to observability, which turned out to be the more interesting problem.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b;"><span>aws</span><span>·</span><span>terraform</span></div>
+          </div>
+        </article>
+
+        <article style="border-style:solid; border-width:1px; border-color:{{ itemS.ncr.bd }}; border-radius:8px; background:#101215; opacity:{{ itemS.ncr.op }}; transition:opacity .3s, border-color .3s;">
+          <div onClick="{{ onJob.ncr }}" style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; border:1px solid #24282e; border-radius:3px; padding:3px 7px; flex-shrink:0;">offset 3</span>
+            <span style="flex:1; min-width:0;">
+              <span style="display:block; font-size:17px; font-weight:700; letter-spacing:-.015em;">NCR Voyix / ServiceLink</span>
+              <span style="display:block; font-size:14px; color:#9aa0a7;">Software Engineering Intern &amp; IT Help Desk Support</span>
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;">early career</span>
+            <span style="color:#ff7a45; font-size:15px; flex-shrink:0;">{{ itemS.ncr.icon }}</span>
+          </div>
+          <div style="display:{{ itemS.ncr.body }}; padding:0 20px 22px;">
+            <p style="margin:0 0 14px; max-width:760px; font-size:15px; color:#9aa0a7; text-wrap:pretty;">Two roles that taught the unglamorous fundamentals — Python automation scripts for mobile-testing workflows at NCR Voyix, and web-application, account-access, and SQL-reporting support at ServiceLink. Neither one glamorous. Both load-bearing for everything after.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b;"><span>python</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section style="padding:0 0 72px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin-bottom:10px;">skills — click a tag to cross-reference</div>
+      <h2 style="margin:0 0 10px; font-size:clamp(28px,3.4vw,38px); font-weight:700; letter-spacing:-.025em;">What I actually reach for</h2>
+      <p style="margin:0 0 30px; max-width:620px; font-size:15px; color:#9aa0a7;">Selecting a tag dims every role and project that can't back it up. <span style="color:#ece7dd;">{{ filterNote }}</span></p>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px;">
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">Observability &amp; Telemetry</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I know it's working</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">RED and USE framing for what to look at, then Splunk, Logstash, Kafka, and Cribl as the pipes it flows through. RCA is what happens when a number goes somewhere it shouldn't and someone has to explain why before it happens again.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.splunk }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.splunk.bd }}; background:{{ tagS.splunk.bg }}; color:{{ tagS.splunk.c }}; opacity:{{ tagS.splunk.op }};">Splunk</button>
+            <button onClick="{{ onTag.logstash }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.logstash.bd }}; background:{{ tagS.logstash.bg }}; color:{{ tagS.logstash.c }}; opacity:{{ tagS.logstash.op }};">Logstash</button>
+            <button onClick="{{ onTag.kafka }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.kafka.bd }}; background:{{ tagS.kafka.bg }}; color:{{ tagS.kafka.c }}; opacity:{{ tagS.kafka.op }};">Kafka</button>
+            <button onClick="{{ onTag.cribl }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.cribl.bd }}; background:{{ tagS.cribl.bg }}; color:{{ tagS.cribl.c }}; opacity:{{ tagS.cribl.op }};">Cribl</button>
+            <button onClick="{{ onTag.red }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.red.bd }}; background:{{ tagS.red.bg }}; color:{{ tagS.red.c }}; opacity:{{ tagS.red.op }};">RED</button>
+            <button onClick="{{ onTag.use }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.use.bd }}; background:{{ tagS.use.bg }}; color:{{ tagS.use.c }}; opacity:{{ tagS.use.op }};">USE</button>
+            <button onClick="{{ onTag.rca }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.rca.bd }}; background:{{ tagS.rca.bg }}; color:{{ tagS.rca.c }}; opacity:{{ tagS.rca.op }};">RCA</button>
+            <button onClick="{{ onTag.logging }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.logging.bd }}; background:{{ tagS.logging.bg }}; color:{{ tagS.logging.c }}; opacity:{{ tagS.logging.op }};">Logging</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">Programming</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I make it move</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">Python does most of the automation. Rust shows up where correctness matters more than iteration speed — Kernform's core and PraxisLedger's storage layer are both Rust for that reason. Bash glues Linux ops together when nothing fancier is warranted.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.python }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.python.bd }}; background:{{ tagS.python.bg }}; color:{{ tagS.python.c }}; opacity:{{ tagS.python.op }};">Python</button>
+            <button onClick="{{ onTag.rust }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.rust.bd }}; background:{{ tagS.rust.bg }}; color:{{ tagS.rust.c }}; opacity:{{ tagS.rust.op }};">Rust</button>
+            <button onClick="{{ onTag.bash }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.bash.bd }}; background:{{ tagS.bash.bg }}; color:{{ tagS.bash.c }}; opacity:{{ tagS.bash.op }};">Bash</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">Architecture</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I shape it</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">Hexagonal architecture keeps domain logic from knowing or caring what's on the other side of a port — a database, an LLM provider, a CLI, doesn't matter. Event-driven is how Kafka → Logstash → Splunk actually behaves in production, not just a diagram choice. Self-healing is the same idea one level up: systems that notice they're wrong and correct within bounds, not systems that never fail.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.hexagonal }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.hexagonal.bd }}; background:{{ tagS.hexagonal.bg }}; color:{{ tagS.hexagonal.c }}; opacity:{{ tagS.hexagonal.op }};">Hexagonal Architecture</button>
+            <button onClick="{{ onTag.eda }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.eda.bd }}; background:{{ tagS.eda.bg }}; color:{{ tagS.eda.c }}; opacity:{{ tagS.eda.op }};">Event-Driven Architecture</button>
+            <button onClick="{{ onTag.selfhealing }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.selfhealing.bd }}; background:{{ tagS.selfhealing.bg }}; color:{{ tagS.selfhealing.c }}; opacity:{{ tagS.selfhealing.op }};">Self-Healing Systems</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">Configuration Management</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I keep it consistent</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">Salt and Terraform for infrastructure that already exists. Scaffolding and conformance — Kernform's actual job — for making sure new repositories start out consistent instead of drifting from day one and getting "fixed" later under time pressure.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.salt }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.salt.bd }}; background:{{ tagS.salt.bg }}; color:{{ tagS.salt.c }}; opacity:{{ tagS.salt.op }};">SaltStack</button>
+            <button onClick="{{ onTag.terraform }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.terraform.bd }}; background:{{ tagS.terraform.bg }}; color:{{ tagS.terraform.c }}; opacity:{{ tagS.terraform.op }};">Terraform</button>
+            <button onClick="{{ onTag.scaffolding }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.scaffolding.bd }}; background:{{ tagS.scaffolding.bg }}; color:{{ tagS.scaffolding.c }}; opacity:{{ tagS.scaffolding.op }};">Scaffolding &amp; Conformance</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">Infrastructure &amp; Reliability</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I keep it standing</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">Linux and AWS are the ground floor. HA/DR readiness and drift detection are what keep that ground floor from quietly becoming unstable — the unglamorous half of the job that only gets noticed when it's skipped.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.linux }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.linux.bd }}; background:{{ tagS.linux.bg }}; color:{{ tagS.linux.c }}; opacity:{{ tagS.linux.op }};">Linux</button>
+            <button onClick="{{ onTag.aws }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.aws.bd }}; background:{{ tagS.aws.bg }}; color:{{ tagS.aws.c }}; opacity:{{ tagS.aws.op }};">AWS</button>
+            <button onClick="{{ onTag.vmware }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.vmware.bd }}; background:{{ tagS.vmware.bg }}; color:{{ tagS.vmware.c }}; opacity:{{ tagS.vmware.op }};">VMware / vSphere</button>
+            <button onClick="{{ onTag.dr }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.dr.bd }}; background:{{ tagS.dr.bg }}; color:{{ tagS.dr.c }}; opacity:{{ tagS.dr.op }};">HA/DR Readiness</button>
+            <button onClick="{{ onTag.drift }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.drift.bd }}; background:{{ tagS.drift.bg }}; color:{{ tagS.drift.c }}; opacity:{{ tagS.drift.op }};">Configuration-Drift Detection</button>
+          </div>
+        </div>
+
+        <div style="border:1px solid #24282e; border-radius:8px; background:#101215; padding:20px 22px;">
+          <h3 style="margin:0 0 2px; font-size:17px; font-weight:700; letter-spacing:-.015em;">AI-Assisted Engineering</h3>
+          <p style="margin:0 0 12px; font-size:13.5px; color:#6e747b;">how I work with agents, not just around them</p>
+          <p style="margin:0 0 16px; font-size:14px; color:#9aa0a7; text-wrap:pretty;">Codex, Claude, and Antigravity in daily use, Copilot inside the JPMC workflow — but the actual skill isn't "using an AI tool," it's context engineering and harness design: giving an agent an explicit, inspectable contract instead of hoping it infers one. OpenTelemetry and tracing are the next piece of that — still learning, not yet claiming mastery.</p>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <button onClick="{{ onTag.aieval }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.aieval.bd }}; background:{{ tagS.aieval.bg }}; color:{{ tagS.aieval.c }}; opacity:{{ tagS.aieval.op }};">AI Code Evaluation</button>
+            <button onClick="{{ onTag.contexteng }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.contexteng.bd }}; background:{{ tagS.contexteng.bg }}; color:{{ tagS.contexteng.c }}; opacity:{{ tagS.contexteng.op }};">Context Engineering</button>
+            <button onClick="{{ onTag.otel }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.otel.bd }}; background:{{ tagS.otel.bg }}; color:{{ tagS.otel.c }}; opacity:{{ tagS.otel.op }};">OpenTelemetry &amp; Tracing</button>
+            <button onClick="{{ onTag.harness }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; padding:5px 10px; border-radius:4px; cursor:pointer; border-style:solid; border-width:1px; border-color:{{ tagS.harness.bd }}; background:{{ tagS.harness.bg }}; color:{{ tagS.harness.c }}; opacity:{{ tagS.harness.op }};">Harness Engineering</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:0 0 72px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin-bottom:10px;">projects — the personal ledger</div>
+      <h2 style="margin:0 0 32px; font-size:clamp(28px,3.4vw,38px); font-weight:700; letter-spacing:-.025em;">What's actually running</h2>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px;">
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.blackcell.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.blackcell.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">BlackCell</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #f2b134; color:#f2b134; border-radius:3px; white-space:nowrap;">pre-alpha</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Evidence-gated control runtime for agent actions.</p>
+          <div style="display:flex; gap:14px; align-items:center;">
+            <a href="#" onClick="{{ goBC }}" style="font-family:'JetBrains Mono',monospace; font-size:12px;">deep-dive →</a>
+            <a href="https://github.com/kmosoti/blackcell" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;" style-hover="color:#ff7a45">repo</a>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.sds.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.sds.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">splunk-dashboard-studio</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #f2b134; color:#f2b134; border-radius:3px; white-space:nowrap;">alpha</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4–10.4.</p>
+          <div style="display:flex; gap:14px; align-items:center;">
+            <a href="#" onClick="{{ goSP }}" style="font-family:'JetBrains Mono',monospace; font-size:12px;">deep-dive →</a>
+            <a href="https://github.com/kmosoti/splunk-dashboard-studio-python" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;" style-hover="color:#ff7a45">repo</a>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.praxis.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.praxis.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">PraxisLedger</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #24282e; color:#6e747b; border-radius:3px; white-space:nowrap;">early bootstrap</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Provenance and temporal knowledge graph. SQLite + Rust + Python.</p>
+          <a href="https://github.com/kmosoti/PraxisLedger" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace; font-size:12px;">view repo →</a>
+        </div>
+
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.kernform.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.kernform.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">Kernform</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #f2b134; color:#f2b134; border-radius:3px; white-space:nowrap;">alpha</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI — successor to an earlier doctrine-notes project, different approach entirely.</p>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;">private</span>
+        </div>
+
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.sai.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.sai.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">SAI</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #ff7a45; color:#ff7a45; border-radius:3px; white-space:nowrap;">shipped</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Agent routing modeled on brain-network dynamics — episodic/semantic memory, async consolidation loop.</p>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;">private</span>
+        </div>
+
+        <div style="display:flex; flex-direction:column; border-style:solid; border-width:1px; border-color:{{ itemS.los.bd }}; border-radius:8px; background:#101215; padding:20px 22px; opacity:{{ itemS.los.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-size:17px; font-weight:700; letter-spacing:-.015em;">learning-os</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border:1px solid #24282e; color:#6e747b; border-radius:3px; white-space:nowrap;">active</span>
+          </div>
+          <p style="margin:10px 0 16px; flex:1; font-size:14.5px; color:#9aa0a7;">Adaptive personal-learning app. FastAPI + SQLAlchemy.</p>
+          <a href="https://github.com/kmosoti/learning-os" target="_blank" rel="noopener" style="font-family:'JetBrains Mono',monospace; font-size:12px;">view repo →</a>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:0 0 40px; display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:clamp(28px,5vw,60px);">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin-bottom:10px;">about</div>
+        <h2 style="margin:0 0 24px; font-size:clamp(28px,3.4vw,38px); font-weight:700; letter-spacing:-.025em;">Why observability, why now</h2>
+        <p style="margin:0 0 18px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">What I actually enjoy is the fitting-together part — more Lego than art project. Finding the pieces, working out how they connect, building something whole out of parts that used to be separate. Lately most of those pieces have been automation: infrastructure, mostly, sometimes application software.</p>
+        <p style="margin:0 0 18px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">Skip that second half and tech debt moves in quietly — it doesn't announce itself, it just slows the cycle down until someone finally asks why. Instrumentation is how you catch it before it's load-bearing.</p>
+        <p style="margin:0; font-size:16px; color:#9aa0a7; text-wrap:pretty;">It's also why agentic engineering is the obvious next branch, not a pivot. An agent acting on your infrastructure is just another system that needs to tell on itself — same question, new blast radius.</p>
+      </div>
+      <div>
+        <blockquote style="margin:0 0 30px; padding:2px 0 2px 22px; border-left:2px solid #ff7a45; font-size:clamp(20px,2.2vw,25px); line-height:1.32; font-weight:600; letter-spacing:-.02em; color:#ece7dd; text-wrap:pretty;">Building the automation is the easy half. Knowing whether it's working is the actual job.</blockquote>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-family:'JetBrains Mono',monospace; font-size:13px; margin-bottom:8px;">
+          <span style="display:flex; align-items:center; gap:7px; color:#ece7dd;"><span style="width:6px;height:6px;border-radius:50%;background:#ff7a45;"></span>build</span>
+          <span style="color:#6e747b;">→</span>
+          <span style="display:flex; align-items:center; gap:7px; color:#ece7dd;"><span style="width:6px;height:6px;border-radius:50%;background:#ff7a45;"></span>observe</span>
+          <span style="color:#6e747b;">→</span>
+          <span style="display:flex; align-items:center; gap:7px; color:#ece7dd;"><span style="width:6px;height:6px;border-radius:50%;background:#ff7a45;"></span>improve</span>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b; margin-bottom:30px;">↺ repeat, ideally faster each time</div>
+        <ul style="margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:12px;">
+          <li style="position:relative; padding-left:22px; font-size:15px; color:#9aa0a7;"><span style="position:absolute; left:0; color:#ff7a45;">→</span>Prefer boring, testable automation over clever automation.</li>
+          <li style="position:relative; padding-left:22px; font-size:15px; color:#9aa0a7;"><span style="position:absolute; left:0; color:#ff7a45;">→</span>Separate configuration from behavior so a change is easy to review.</li>
+          <li style="position:relative; padding-left:22px; font-size:15px; color:#9aa0a7;"><span style="position:absolute; left:0; color:#ff7a45;">→</span>Logs, commands, validation output, and failure notes are evidence, not noise.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ isBC }}" hint-placeholder-val="{{ false }}">
+  <main data-print-hide="1" style="position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:60px clamp(20px,4vw,44px) 120px;">
+    <a href="#" onClick="{{ goHome }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;" style-hover="color:#ff7a45">← profile</a>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin:28px 0 12px;">project deep-dive / blackcell</div>
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <h1 style="margin:0; font-size:clamp(36px,5vw,54px); font-weight:800; letter-spacing:-.035em;">BlackCell</h1>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border:1px solid #f2b134; color:#f2b134; border-radius:4px;">pre-alpha</span>
+    </div>
+    <p style="margin:20px 0 22px; max-width:700px; font-size:21px; line-height:1.4; color:#ece7dd; text-wrap:pretty;">Local-first, evidence-gated control runtime for coding agents.</p>
+    <p style="margin:0 0 16px; max-width:700px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">BlackCell doesn't take an agent's word that something worked — it makes the agent prove it, then writes the proof down. Every task moves through the same loop: observe the repository, construct a plan bounded to what's actually needed, execute through a provider adapter inside an isolated worktree, review the result independently, and verify it deterministically before anything gets recorded.</p>
+
+    <h2 style="margin:44px 0 12px; font-size:22px; font-weight:700; letter-spacing:-.02em;">What happens when verification fails</h2>
+    <p style="margin:0 0 26px; max-width:700px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">Failure doesn't mean the loop panics, or quietly keeps trying forever. Retries are bounded — two attempts here, for illustration — and running out doesn't trigger a third attempt on its own. It hands control back to the host. No unbounded autonomous writes, no agent swarm working around a wall it just hit.</p>
+
+    <div style="display:flex; flex-wrap:wrap; gap:24px; align-items:flex-end; padding:18px 20px; border:1px solid #24282e; border-radius:8px; background:#101215; margin-bottom:20px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;">scenario</div>
+        <div style="display:inline-flex; border:1px solid #24282e; border-radius:5px; overflow:hidden;">
+          <button onClick="{{ bcSetClean }}" style="padding:7px 13px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ bcSeg.clean.c }}; background:{{ bcSeg.clean.b }};">clean pass</button>
+          <button onClick="{{ bcSetRetry }}" style="padding:7px 13px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ bcSeg.retry.c }}; background:{{ bcSeg.retry.b }};">fail once, retry</button>
+          <button onClick="{{ bcSetExhausted }}" style="padding:7px 13px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ bcSeg.exhausted.c }}; background:{{ bcSeg.exhausted.b }};">attempts exhausted</button>
+        </div>
+      </div>
+      <button onClick="{{ bcRun }}" disabled="{{ bcRunning }}" style="padding:9px 20px; border:1px solid #ff7a45; border-radius:5px; cursor:pointer; background:#ff7a45; color:#140904; font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:700; opacity:{{ bcBtnOp }};">run task</button>
+    </div>
+
+    <div ref="{{ bcWrap }}" style="position:relative; border:1px solid #24282e; border-radius:8px; background:#0c0e11; padding:26px 20px 22px; margin-bottom:16px;">
+      <div style="display:flex; align-items:stretch; gap:8px; flex-wrap:wrap;">
+        <div ref="{{ bcR.observe }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.observe.bd }}; box-shadow:{{ bcS.observe.sh }}; transition:border-color .3s, box-shadow .3s;">
+          <span style="font-size:18px; color:#ff7a45;">◎</span>
+          <span style="font-size:13.5px; font-weight:700;">observe</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">repo state</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ bcR.plan }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.plan.bd }}; box-shadow:{{ bcS.plan.sh }}; transition:border-color .3s, box-shadow .3s;">
+          <span style="font-size:18px; color:#ff7a45;">▤</span>
+          <span style="font-size:13.5px; font-weight:700;">plan</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">bounded</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ bcR.execute }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.execute.bd }}; box-shadow:{{ bcS.execute.sh }}; transition:border-color .3s, box-shadow .3s;">
+          <span style="font-size:18px; color:#ff7a45;">▶</span>
+          <span style="font-size:13.5px; font-weight:700;">execute</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">isolated worktree</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ bcR.review }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.review.bd }}; box-shadow:{{ bcS.review.sh }}; transition:border-color .3s, box-shadow .3s;">
+          <span style="font-size:18px; color:#ff7a45;">⟲</span>
+          <span style="font-size:13.5px; font-weight:700;">review</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">independent</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ bcR.verify }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.verify.bd }}; box-shadow:{{ bcS.verify.sh }}; transition:border-color .3s, box-shadow .3s;">
+          <span style="font-size:18px; color:#ff7a45;">✓</span>
+          <span style="font-size:13.5px; font-weight:700;">verify</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#f2b134;">{{ bcVerifySub }}</span>
+        </div>
+      </div>
+      <div style="display:flex; gap:14px; margin-top:18px;">
+        <div ref="{{ bcR.record }}" style="flex:1; padding:14px 16px; text-align:center; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.record.bd }}; box-shadow:{{ bcS.record.sh }}; opacity:{{ bcS.record.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="font-size:14.5px; font-weight:700;">recorded</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b; margin-top:3px;">append-only evidence, SQLite</div>
+        </div>
+        <div ref="{{ bcR.host }}" style="flex:1; padding:14px 16px; text-align:center; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ bcS.host.bd }}; box-shadow:{{ bcS.host.sh }}; opacity:{{ bcS.host.op }}; transition:opacity .3s, border-color .3s;">
+          <div style="font-size:14.5px; font-weight:700;">returned to host</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#6e747b; margin-top:3px;">bounded attempts exhausted</div>
+        </div>
+      </div>
+      <div style="position:absolute; top:0; left:0; width:10px; height:10px; border-radius:50%; background:#ff7a45; box-shadow:0 0 10px 3px rgba(255,122,69,.5); pointer-events:none; z-index:5; transition:{{ tokenTrans }}; transform:{{ bcToken.t }}; opacity:{{ bcToken.o }};"></div>
+    </div>
+
+    <div ref="{{ bcLogEl }}" style="height:170px; overflow-y:auto; padding:12px 14px; border:1px solid #24282e; border-radius:8px; background:#101215; font-family:'JetBrains Mono',monospace; font-size:12.5px; margin-bottom:24px;">
+      <sc-for list="{{ bcLogs }}" as="l" hint-placeholder-count="0">
+        <div style="padding:2px 0; color:{{ l.c }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; animation:{{ l.anim }};"><span style="opacity:.5; margin-right:9px;">{{ l.ts }}</span>{{ l.msg }}</div>
+      </sc-for>
+    </div>
+
+    <p style="margin:0; max-width:720px; font-size:15px; color:#6e747b; text-wrap:pretty;">Six real design decisions, simplified into one runnable loop — the actual system also handles provider-adapter negotiation, DAG execution across multiple bounded plans, and prior-experience retrieval feeding into future plans. This shows the shape, not the whole machine.</p>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ isSP }}" hint-placeholder-val="{{ false }}">
+  <main data-print-hide="1" style="position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:60px clamp(20px,4vw,44px) 120px;">
+    <a href="#" onClick="{{ goHome }}" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;" style-hover="color:#ff7a45">← profile</a>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em; color:#ff7a45; text-transform:uppercase; margin:28px 0 12px;">project deep-dive / splunk-dashboard-studio</div>
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <h1 style="margin:0; font-size:clamp(30px,4.4vw,48px); font-weight:800; letter-spacing:-.035em;">splunk-dashboard-studio</h1>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border:1px solid #f2b134; color:#f2b134; border-radius:4px;">alpha</span>
+    </div>
+    <p style="margin:20px 0 22px; max-width:720px; font-size:21px; line-height:1.4; color:#ece7dd; text-wrap:pretty;">Pydantic 2 compiler for Splunk Dashboard Studio — typed Python in, version-targeted JSON out.</p>
+    <p style="margin:0 0 20px; max-width:720px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">Dashboard Studio's JSON is easy to hand-author and easy to get subtly wrong — a typo'd key doesn't fail loudly, it just fails to render, or renders wrong, days later. This compiles a typed model down to the JSON Splunk actually expects, checked twice: once against the typed schema, once against Splunk's own official validator, so drift between the two gets caught instead of shipped.</p>
+
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:36px;">
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">Golden Four</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">RED</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">USE</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">MELT</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">SLO</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">Kubernetes</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">CI/CD</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">Security</span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9aa0a7; border:1px solid #24282e; border-radius:4px; padding:4px 9px;">Business</span>
+    </div>
+
+    <h2 style="margin:0 0 12px; font-size:22px; font-weight:700; letter-spacing:-.02em;">What the compiler catches</h2>
+    <p style="margin:0 0 22px; max-width:700px; font-size:16px; color:#9aa0a7; text-wrap:pretty;">Toggle a mistake below, pick a target version, and compile. Nothing reaches <span style="font-family:'JetBrains Mono',monospace; color:#ff7a45;">emit</span> until both validation stages agree it's clean.</p>
+
+    <div style="display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; padding:18px 20px; border:1px solid #24282e; border-radius:8px; background:#101215; margin-bottom:20px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;">target version</div>
+        <div style="display:inline-flex; border:1px solid #24282e; border-radius:5px; overflow:hidden;">
+          <button onClick="{{ spSetV94 }}" style="padding:7px 12px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ spVer.v94.c }}; background:{{ spVer.v94.b }};">9.4.x</button>
+          <button onClick="{{ spSetV100 }}" style="padding:7px 12px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ spVer.v100.c }}; background:{{ spVer.v100.b }};">10.0.x</button>
+          <button onClick="{{ spSetV102 }}" style="padding:7px 12px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ spVer.v102.c }}; background:{{ spVer.v102.b }};">10.2.x</button>
+          <button onClick="{{ spSetV104 }}" style="padding:7px 12px; border:0; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:12px; color:{{ spVer.v104.c }}; background:{{ spVer.v104.b }};">10.4.x</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;">introduce a problem</div>
+        <div style="display:flex; flex-direction:column; gap:7px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:#9aa0a7; cursor:pointer;"><input type="checkbox" checked="{{ spT.unknown }}" onChange="{{ spTogUnknown }}" style="accent-color:#ff7a45;">unknown field in payload</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:#9aa0a7; cursor:pointer;"><input type="checkbox" checked="{{ spT.missing }}" onChange="{{ spTogMissing }}" style="accent-color:#ff7a45;">missing required field</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:#9aa0a7; cursor:pointer;"><input type="checkbox" checked="{{ spT.type }}" onChange="{{ spTogType }}" style="accent-color:#ff7a45;">wrong type for a value</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:#9aa0a7; cursor:pointer;"><input type="checkbox" checked="{{ spT.diff }}" onChange="{{ spTogDiff }}" style="accent-color:#ff7a45;">passes our schema, not Splunk's own</label>
+        </div>
+      </div>
+      <button onClick="{{ spRun }}" disabled="{{ spRunning }}" style="padding:9px 20px; border:1px solid #ff7a45; border-radius:5px; cursor:pointer; background:#ff7a45; color:#140904; font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:700; align-self:flex-end; opacity:{{ spBtnOp }};">compile</button>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-bottom:20px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;">model.py</div>
+        <pre style="margin:0; padding:14px 16px; border:1px solid #24282e; border-radius:8px; background:#101215; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.7; color:#9aa0a7; overflow-x:auto;">class <span style="color:#ff7a45;">RevenuePanel</span>(DashboardPanel):
+    title: str = <span style="color:#ff7a45;">"Revenue"</span>
+    data_source: str
+    visualization: Literal[<span style="color:#ff7a45;">"line"</span>, <span style="color:#ff7a45;">"bar"</span>]
+    threshold: float | None = None</pre>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;">compiling: revenue-panel.json</div>
+        <div style="padding:14px 16px; border:1px solid #24282e; border-radius:8px; background:#101215; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.7; color:#9aa0a7; overflow-x:auto;">
+          <sc-for list="{{ spPayload }}" as="row" hint-placeholder-count="6">
+            <div style="white-space:pre; color:{{ row.c }};">{{ row.t }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div ref="{{ spWrap }}" style="position:relative; border:1px solid #24282e; border-radius:8px; background:#0c0e11; padding:26px 20px 22px; margin-bottom:16px;">
+      <div style="display:flex; align-items:stretch; gap:8px; flex-wrap:wrap;">
+        <div ref="{{ spR.generate }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ spS.generate.bd }}; box-shadow:{{ spS.generate.sh }}; opacity:{{ spS.generate.op }}; transition:border-color .3s, box-shadow .3s, opacity .3s;">
+          <span style="font-size:13.5px; font-weight:700;">generate</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">from model.py</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ spR.valPy }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ spS.valPy.bd }}; box-shadow:{{ spS.valPy.sh }}; opacity:{{ spS.valPy.op }}; transition:border-color .3s, box-shadow .3s, opacity .3s;">
+          <span style="font-size:13.5px; font-weight:700;">validate</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">Pydantic</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ spR.valNpm }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ spS.valNpm.bd }}; box-shadow:{{ spS.valNpm.sh }}; opacity:{{ spS.valNpm.op }}; transition:border-color .3s, box-shadow .3s, opacity .3s;">
+          <span style="font-size:13.5px; font-weight:700;">validate</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">Splunk NPM</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ spR.optimize }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ spS.optimize.bd }}; box-shadow:{{ spS.optimize.sh }}; opacity:{{ spS.optimize.op }}; transition:border-color .3s, box-shadow .3s, opacity .3s;">
+          <span style="font-size:13.5px; font-weight:700;">optimize</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">normalize output</span>
+        </div>
+        <div style="display:flex; align-items:center; color:#3a4047;">→</div>
+        <div ref="{{ spR.emit }}" style="flex:1; min-width:110px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:14px 8px; border-radius:7px; background:#141619; border-style:solid; border-width:1px; border-color:{{ spS.emit.bd }}; box-shadow:{{ spS.emit.sh }}; opacity:{{ spS.emit.op }}; transition:border-color .3s, box-shadow .3s, opacity .3s;">
+          <span style="font-size:13.5px; font-weight:700;">emit</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b;">{{ spEmitSub }}</span>
+        </div>
+      </div>
+      <div style="position:absolute; top:0; left:0; width:10px; height:10px; border-radius:50%; background:#ff7a45; box-shadow:0 0 10px 3px rgba(255,122,69,.5); pointer-events:none; z-index:5; transition:{{ tokenTrans }}; transform:{{ spToken.t }}; opacity:{{ spToken.o }};"></div>
+    </div>
+
+    <p style="margin:0 0 16px; font-size:14px; color:#ef4759; display:{{ spErrShow }};">{{ spErr }}</p>
+
+    <div ref="{{ spLogEl }}" style="height:160px; overflow-y:auto; padding:12px 14px; border:1px solid #24282e; border-radius:8px; background:#101215; font-family:'JetBrains Mono',monospace; font-size:12.5px; margin-bottom:24px;">
+      <sc-for list="{{ spLogs }}" as="l" hint-placeholder-count="0">
+        <div style="padding:2px 0; color:{{ l.c }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; animation:{{ l.anim }};"><span style="opacity:.5; margin-right:9px;">{{ l.ts }}</span>{{ l.msg }}</div>
+      </sc-for>
+    </div>
+
+    <p style="margin:0; max-width:720px; font-size:15px; color:#6e747b; text-wrap:pretty;">The differential stage exists because a shape can be perfectly valid Python and still be a shape Splunk's own schema doesn't recognize yet — that's the whole reason a second, independent validator sits in the pipeline instead of trusting the typed model alone.</p>
+  </main>
+  </sc-if>
+
+  <footer data-print-hide="1" style="position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:28px clamp(20px,4vw,44px) 56px; border-top:1px solid #1b1f24; display:flex; flex-wrap:wrap; gap:16px; justify-content:space-between; align-items:center; font-family:'JetBrains Mono',monospace; font-size:12px; color:#6e747b;">
+    <span>kennedy mosoti — observability platform engineer</span>
+    <span style="display:flex; gap:18px;">
+      <a href="https://github.com/kmosoti" target="_blank" rel="noopener">github.com/kmosoti</a>
+      <a href="#" onClick="{{ printResume }}">résumé (pdf)</a>
+      <a href="#" onClick="{{ downloadJSON }}">résumé.json</a>
+    </span>
+  </footer>
+
+  <div data-print-doc="1" style="display:none; background:#fff; color:#111; font-family:'Public Sans',system-ui,sans-serif; font-size:10.5pt; line-height:1.45; padding:0;">
+    <div style="border-bottom:1.5pt solid #111; padding-bottom:8pt; margin-bottom:12pt;">
+      <div style="font-size:22pt; font-weight:800; letter-spacing:-.02em;">Kennedy Mosoti</div>
+      <div style="font-size:10.5pt; color:#444; margin-top:2pt;">Observability Platform Engineer — branching into agentic engineering</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:8.5pt; color:#555; margin-top:5pt;">github.com/kmosoti</div>
+    </div>
+
+    <div style="font-size:9pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#111; margin:0 0 5pt;">Summary</div>
+    <p style="margin:0 0 12pt; color:#333;">Observability platform engineer supporting a centralized, multi-tenant Splunk/Logstash/Kafka platform. Automation in Python, Salt, and Terraform; reliability work across HA/DR readiness, configuration-drift detection, and root-cause analysis. Currently extending the same instrumentation discipline to agent-driven systems.</p>
+
+    <div style="font-size:9pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#111; margin:0 0 5pt;">Experience</div>
+    <div style="margin-bottom:9pt;">
+      <div style="display:flex; justify-content:space-between; gap:12pt;"><strong>Netbuilder (JPMC LogA Platform)</strong><span style="color:#555; font-size:9pt;">Aug 2024 — present</span></div>
+      <div style="color:#444; font-style:italic; margin-bottom:2pt;">Associate Observability Engineer</div>
+      <div style="color:#333;">Support a centralized, multi-tenant observability platform — Splunk, Logstash, SaltStack, Linux. Work the Kafka → Logstash → Splunk ingestion path: onboarding and sync analysis, stale-topic cleanup, consumer remediation. Automated search-filter updates across 3,000+ Splunk roles in Python, and login-banner orchestration across 100+ search heads in Salt — plus SHC repave design for 15 on-prem nodes. Duplicate-detection to catch config drift before it ships, DR-readiness investigation into cluster-manager failover and NAS bottlenecks, and RCA on farm-break findings down to SELinux-context drift.</div>
+    </div>
+    <div style="margin-bottom:9pt;">
+      <div style="display:flex; justify-content:space-between; gap:12pt;"><strong>Data Annotation Tech</strong><span style="color:#555; font-size:9pt;">Jan 2024 — present</span></div>
+      <div style="color:#444; font-style:italic; margin-bottom:2pt;">AI Code Evaluation Contractor</div>
+      <div style="color:#333;">Evaluate AI-generated code and reasoning — Python, JavaScript, SQL — for correctness, efficiency, maintainability, edge-case handling, and whether it actually did what it was asked.</div>
+    </div>
+    <div style="margin-bottom:9pt;">
+      <div style="display:flex; justify-content:space-between; gap:12pt;"><strong>Amazon Web Services</strong><span style="color:#555; font-size:9pt;">Jan 2023 — Nov 2023</span></div>
+      <div style="color:#444; font-style:italic; margin-bottom:2pt;">Associate Solutions Architect</div>
+      <div style="color:#333;">Advised enterprise customers on AWS architecture — availability, security, scalability, performance. Built a cloud-migration cost-estimation tool and several cloud-native prototypes.</div>
+    </div>
+    <div style="margin-bottom:12pt;">
+      <div style="display:flex; justify-content:space-between; gap:12pt;"><strong>NCR Voyix / ServiceLink</strong><span style="color:#555; font-size:9pt;">early career</span></div>
+      <div style="color:#444; font-style:italic; margin-bottom:2pt;">Software Engineering Intern &amp; IT Help Desk Support</div>
+      <div style="color:#333;">Python automation scripts for mobile-testing workflows at NCR Voyix; web-application, account-access, and SQL-reporting support at ServiceLink.</div>
+    </div>
+
+    <div style="font-size:9pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#111; margin:0 0 5pt;">Selected Projects</div>
+    <div style="margin-bottom:12pt; color:#333;">
+      <div style="margin-bottom:3pt;"><strong>BlackCell</strong> (pre-alpha) — Local-first, evidence-gated control runtime for coding agents. Bounded retries, isolated worktrees, append-only evidence in SQLite.</div>
+      <div style="margin-bottom:3pt;"><strong>splunk-dashboard-studio</strong> (alpha) — Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4–10.4, differential validation against Splunk's official validator.</div>
+      <div style="margin-bottom:3pt;"><strong>Kernform</strong> (alpha) — Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI.</div>
+      <div style="margin-bottom:3pt;"><strong>PraxisLedger</strong> — Provenance and temporal knowledge graph. SQLite + Rust + Python.</div>
+      <div style="margin-bottom:3pt;"><strong>SAI</strong> (shipped) — Agent routing modeled on brain-network dynamics; episodic/semantic memory, async consolidation loop.</div>
+      <div><strong>learning-os</strong> — Adaptive personal-learning app. FastAPI + SQLAlchemy.</div>
+    </div>
+
+    <div style="font-size:9pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#111; margin:0 0 5pt;">Skills</div>
+    <div style="margin-bottom:12pt; color:#333;">
+      <div><strong>Observability</strong> — Splunk, Logstash, Kafka, Cribl, RED, USE, SRE, RCA, metrics, alerts, traces, events, logging</div>
+      <div><strong>Programming</strong> — Python, Rust, Bash</div>
+      <div><strong>Architecture</strong> — Hexagonal architecture, event-driven architecture, self-healing systems</div>
+      <div><strong>Configuration</strong> — SaltStack, Terraform, scaffolding &amp; conformance</div>
+      <div><strong>Infrastructure</strong> — Linux, AWS, VMware/vSphere, HA/DR readiness, configuration-drift detection</div>
+      <div><strong>AI-assisted engineering</strong> — AI code evaluation, context engineering, OpenTelemetry &amp; tracing, harness engineering</div>
+    </div>
+
+    <div style="font-size:9pt; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#111; margin:0 0 5pt;">Education &amp; Certifications</div>
+    <div style="color:#333;">B.S. Software Engineering, University of Texas at Arlington · Splunk Certified Admin · Splunk Power User · Cribl Certified User · AWS Certified Solutions Architect — Associate</div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}">
+const EMBER = '#ff7a45', BORDER = '#24282e', DIM = '#9aa0a7', CRIT = '#ef4759';
+
+const TAGS = ['splunk','logstash','kafka','cribl','red','use','rca','logging','python','rust','bash','hexagonal','eda','selfhealing','salt','terraform','scaffolding','linux','aws','vmware','dr','drift','aieval','contexteng','otel','harness'];
+
+const ITEM_TAGS = {
+  jpmc: ['splunk','logstash','kafka','salt','python','bash','linux','rca','drift','dr','red','use','eda','logging'],
+  dat: ['aieval','python'],
+  aws: ['aws','terraform'],
+  ncr: ['python'],
+  blackcell: ['python','selfhealing'],
+  praxis: ['rust','python'],
+  sds: ['python','splunk','red','use'],
+  sai: ['python'],
+  los: ['python'],
+  kernform: ['rust','python','hexagonal','scaffolding']
+};
+
+const TAG_LABEL = { splunk:'Splunk', logstash:'Logstash', kafka:'Kafka', cribl:'Cribl', red:'RED', use:'USE', rca:'RCA', logging:'Logging', python:'Python', rust:'Rust', bash:'Bash', hexagonal:'Hexagonal Architecture', eda:'Event-Driven Architecture', selfhealing:'Self-Healing Systems', salt:'SaltStack', terraform:'Terraform', scaffolding:'Scaffolding & Conformance', linux:'Linux', aws:'AWS', vmware:'VMware / vSphere', dr:'HA/DR Readiness', drift:'Configuration-Drift Detection', aieval:'AI Code Evaluation', contexteng:'Context Engineering', otel:'OpenTelemetry & Tracing', harness:'Harness Engineering' };
+
+const RESUME = {
+  name: 'Kennedy Mosoti',
+  title: 'Observability Platform Engineer',
+  focus: 'Branching into agentic engineering',
+  links: { github: 'https://github.com/kmosoti' },
+  summary: "Observability platform engineer supporting a centralized, multi-tenant Splunk/Logstash/Kafka platform. Automation in Python, Salt, and Terraform; reliability work across HA/DR readiness, configuration-drift detection, and root-cause analysis.",
+  experience: [
+    { company: 'Netbuilder (JPMC LogA Platform)', role: 'Associate Observability Engineer', start: '2024-08', end: null, highlights: ['Automated search-filter updates across 3,000+ Splunk roles in Python','Login-banner orchestration across 100+ search heads in Salt','SHC repave design for 15 on-prem nodes','Duplicate-detection for configuration drift; DR-readiness investigation; RCA down to SELinux-context drift'], tags: ITEM_TAGS.jpmc },
+    { company: 'Data Annotation Tech', role: 'AI Code Evaluation Contractor', start: '2024-01', end: null, highlights: ['Evaluate AI-generated code and reasoning in Python, JavaScript, and SQL for correctness, efficiency, maintainability, and edge-case handling'], tags: ITEM_TAGS.dat },
+    { company: 'Amazon Web Services', role: 'Associate Solutions Architect', start: '2023-01', end: '2023-11', highlights: ['Advised enterprise customers on availability, security, scalability, and performance','Built a cloud-migration cost-estimation tool and cloud-native prototypes'], tags: ITEM_TAGS.aws },
+    { company: 'NCR Voyix / ServiceLink', role: 'Software Engineering Intern & IT Help Desk Support', start: null, end: null, highlights: ['Python automation for mobile-testing workflows','Web-application, account-access, and SQL-reporting support'], tags: ITEM_TAGS.ncr }
+  ],
+  projects: [
+    { name: 'BlackCell', status: 'pre-alpha', summary: 'Local-first, evidence-gated control runtime for coding agents.', url: 'https://github.com/kmosoti/blackcell', tags: ITEM_TAGS.blackcell },
+    { name: 'splunk-dashboard-studio', status: 'alpha', summary: 'Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4-10.4.', url: 'https://github.com/kmosoti/splunk-dashboard-studio-python', tags: ITEM_TAGS.sds },
+    { name: 'Kernform', status: 'alpha', summary: 'Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI.', url: null, tags: ITEM_TAGS.kernform },
+    { name: 'PraxisLedger', status: 'early bootstrap', summary: 'Provenance and temporal knowledge graph. SQLite + Rust + Python.', url: 'https://github.com/kmosoti/PraxisLedger', tags: ITEM_TAGS.praxis },
+    { name: 'SAI', status: 'shipped', summary: 'Agent routing modeled on brain-network dynamics.', url: null, tags: ITEM_TAGS.sai },
+    { name: 'learning-os', status: 'active', summary: 'Adaptive personal-learning app. FastAPI + SQLAlchemy.', url: 'https://github.com/kmosoti/learning-os', tags: ITEM_TAGS.los }
+  ],
+  skills: {
+    observability: ['Splunk','Logstash','Kafka','Cribl','RED','USE','SRE','RCA','Metrics','Alerts','Traces','Events','Logging'],
+    programming: ['Python','Rust','Bash'],
+    architecture: ['Hexagonal Architecture','Event-Driven Architecture','Self-Healing Systems'],
+    configuration: ['SaltStack','Terraform','Scaffolding & Conformance'],
+    infrastructure: ['Linux','AWS','VMware / vSphere','HA/DR Readiness','Configuration-Drift Detection'],
+    aiAssisted: ['AI Code Evaluation','Context Engineering','OpenTelemetry & Tracing','Harness Engineering']
+  },
+  education: [{ degree: 'B.S. Software Engineering', school: 'University of Texas at Arlington' }],
+  certifications: ['Splunk Certified Admin','Splunk Power User','Cribl Certified User','AWS Certified Solutions Architect — Associate']
+};
+
+class Component extends DCLogic {
+  state = {
+    screen: 'home', dir: 'a', reduced: false, resumeOpen: false, w: 0,
+    typed: '', activeTag: null, openJob: 'jpmc',
+    m: { ttfb: '—', nodes: '—', dom: '—', fps: '—', res: '—', up: '00:00' },
+    bc: { scenario: 'clean', running: false, nodes: {}, logs: [], token: { x: 0, y: 0, o: 0 }, verifySub: '—' },
+    sp: { version: '10.2.x', t: { unknown: false, missing: false, type: false, diff: false }, running: false, nodes: {}, logs: [], token: { x: 0, y: 0, o: 0 }, err: '', emitSub: '—' }
+  };
+
+  canvasL = React.createRef(); canvasR = React.createRef();
+  bcWrap = React.createRef(); spWrap = React.createRef();
+  bcLogEl = React.createRef(); spLogEl = React.createRef();
+  bcR = { observe: React.createRef(), plan: React.createRef(), execute: React.createRef(), review: React.createRef(), verify: React.createRef(), record: React.createRef(), host: React.createRef() };
+  spR = { generate: React.createRef(), valPy: React.createRef(), valNpm: React.createRef(), optimize: React.createRef(), emit: React.createRef() };
+
+  componentDidMount() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) this.setState({ reduced: true });
+    this.t0 = Date.now();
+    this.typeCmd(' whoami');
+    this.metricsTimer = setInterval(() => this.readMetrics(), 1000);
+    this.readMetrics();
+    this.frames = 0; this.fpsMark = performance.now();
+    this.alive = true;
+    this.mx = -9999; this.my = -9999;
+    this.scenes = [this.makeScene(this.canvasL.current), this.makeScene(this.canvasR.current)].filter(Boolean);
+    this.onMouse = e => { this.mx = e.clientX; this.my = e.clientY; };
+    this.onResize = () => { for (const sc of this.scenes) sc.size(); this.setState({ w: window.innerWidth }); };
+    this.setState({ w: window.innerWidth });
+    window.addEventListener('mousemove', this.onMouse);
+    window.addEventListener('resize', this.onResize);
+    this.last = performance.now();
+    this.loop();
+  }
+  componentWillUnmount() {
+    this.alive = false;
+    clearInterval(this.metricsTimer);
+    clearTimeout(this.typeTimer);
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('mousemove', this.onMouse);
+  }
+
+  typeCmd(text) {
+    let i = 0;
+    const step = () => {
+      this.setState({ typed: text.slice(0, i) });
+      i++;
+      if (i <= text.length) this.typeTimer = setTimeout(step, 60);
+    };
+    step();
+  }
+
+  loop() {
+    const tick = now => {
+      if (!this.alive) return;
+      this.frames++;
+      if (now - this.fpsMark >= 1000) { this.fps = Math.round(this.frames * 1000 / (now - this.fpsMark)); this.frames = 0; this.fpsMark = now; }
+      const dt = Math.min((now - this.last) / 1000, .1);
+      this.last = now;
+      const still = this.state.reduced;
+      for (const sc of this.scenes) sc.draw(dt, still, this.mx, this.my);
+      this.raf = requestAnimationFrame(tick);
+    };
+    this.raf = requestAnimationFrame(tick);
+  }
+
+  readMetrics() {
+    const ms = v => (v == null || !isFinite(v) || v < 0) ? '—' : Math.round(v) + 'ms';
+    let nav = null;
+    try { nav = performance.getEntriesByType('navigation')[0]; } catch (e) { nav = null; }
+    let domNodes = 0;
+    try { domNodes = document.getElementsByTagName('*').length; } catch (e) {}
+    let res = 0;
+    try { res = performance.getEntriesByType('resource').length; } catch (e) {}
+    const el = Math.floor((Date.now() - this.t0) / 1000);
+    const up = String(Math.floor(el / 60)).padStart(2, '0') + ':' + String(el % 60).padStart(2, '0');
+    this.setState({ m: {
+      ttfb: nav ? ms(nav.responseStart - nav.requestStart) : '—',
+      nodes: domNodes || '—',
+      dom: nav ? ms(nav.domContentLoadedEventEnd - nav.startTime) : '—',
+      fps: this.fps ? this.fps + '/s' : '—',
+      res: res || '—',
+      up
+    } });
+  }
+
+  makeScene(cv) {
+    if (!cv) return null;
+    const ctx = cv.getContext('2d');
+    const glyphs = '01{}[]<>/\\|=+-*#$%&_:;.abcdefxyzΔΣλ';
+    let nodes = [], drops = [], W = 0, H = 0;
+    const size = () => {
+      W = cv.clientWidth || 190; H = cv.clientHeight || window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = W * dpr; cv.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      nodes = Array.from({ length: 10 }, () => ({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - .5) * 11, vy: (Math.random() - .5) * 11 }));
+      drops = Array.from({ length: Math.max(4, Math.floor(W / 26)) }, (_, i) => ({ x: 10 + i * 26, y: Math.random() * H, sp: 16 + Math.random() * 34, ch: glyphs[Math.floor(Math.random() * glyphs.length)] }));
+    };
+    size();
+    const draw = (dt, still, mx, my) => {
+      if (!W || !H) size();
+      if (!still) {
+        const r = cv.getBoundingClientRect();
+        const lmx = mx - r.left, lmy = my - r.top;
+        for (const n of nodes) {
+          n.x += n.vx * dt; n.y += n.vy * dt;
+          if (n.x < 0 || n.x > W) n.vx *= -1;
+          if (n.y < 0 || n.y > H) n.vy *= -1;
+          n.x = Math.max(0, Math.min(W, n.x)); n.y = Math.max(0, Math.min(H, n.y));
+          const dx = n.x - lmx, dy = n.y - lmy, d = Math.hypot(dx, dy);
+          if (d < 80 && d > .01) { const fo = (80 - d) / 80 * 55; n.vx += dx / d * fo * dt; n.vy += dy / d * fo * dt; }
+          n.vx *= .985; n.vy *= .985;
+        }
+        for (const p of drops) {
+          p.y += p.sp * dt;
+          if (p.y > H + 12) { p.y = -12; p.x = 10 + Math.random() * (W - 20); p.ch = glyphs[Math.floor(Math.random() * glyphs.length)]; }
+          if (Math.random() < .012) p.ch = glyphs[Math.floor(Math.random() * glyphs.length)];
+        }
+      }
+      ctx.clearRect(0, 0, W, H);
+      ctx.font = "11px 'JetBrains Mono', monospace";
+      ctx.textAlign = 'center';
+      for (const p of drops) {
+        const grad = 1 - Math.abs(p.y / H - .5) * 1.1;
+        ctx.fillStyle = 'rgba(242,177,52,' + Math.max(0, .13 * grad).toFixed(3) + ')';
+        ctx.fillText(p.ch, p.x, p.y);
+      }
+      ctx.strokeStyle = 'rgba(255,122,69,.22)';
+      for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < 95) { ctx.globalAlpha = 1 - d / 95; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(255,122,69,.7)';
+      for (const n of nodes) { ctx.beginPath(); ctx.arc(n.x, n.y, 2.3, 0, Math.PI * 2); ctx.fill(); }
+    };
+    return { size, draw };
+  }
+
+  sleep(ms) { return new Promise(r => setTimeout(r, this.state.reduced ? Math.min(ms, 40) : ms)); }
+
+  moveToken(which, ref) {
+    const wrap = which === 'bc' ? this.bcWrap.current : this.spWrap.current;
+    const el = ref && ref.current;
+    if (!wrap || !el) return;
+    const c = wrap.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const token = { x: r.left - c.left + r.width / 2 - 5, y: r.top - c.top + r.height / 2 - 5, o: 1 };
+    this.setState(s => ({ [which]: Object.assign({}, s[which], { token }) }));
+  }
+
+  pushLog(which, msg, kind) {
+    if (!this.logStore) this.logStore = { bc: [], sp: [] };
+    const el = ((performance.now() - (this.runT0 || performance.now())) / 1000).toFixed(1);
+    this.logStore[which] = this.logStore[which].concat([{ ts: '[' + el + 's]', msg, kind }]).slice(-60);
+    const logs = this.logStore[which];
+    this.setState(s => ({ [which]: Object.assign({}, s[which], { logs }) }), () => {
+      const e = which === 'bc' ? this.bcLogEl.current : this.spLogEl.current;
+      if (e) e.scrollTop = e.scrollHeight;
+    });
+  }
+
+  setSim(which, patch) { this.setState(s => ({ [which]: Object.assign({}, s[which], patch) })); }
+  setNode(which, id, val) { this.setState(s => ({ [which]: Object.assign({}, s[which], { nodes: Object.assign({}, s[which].nodes, { [id]: val }) }) })); }
+
+  async bcRun() {
+    if (this.state.bc.running) return;
+    const sc = this.state.bc.scenario;
+    this.runT0 = performance.now();
+    if (!this.logStore) this.logStore = { bc: [], sp: [] };
+    this.logStore.bc = [];
+    this.setSim('bc', { running: true, nodes: {}, logs: [], verifySub: '—' });
+    await this.sleep(60);
+    this.pushLog('bc', 'task submitted');
+    const base = ['observe', 'plan', 'execute', 'review', 'verify'];
+    const rounds = sc === 'clean' ? [{ seq: base, attempt: 1, ok: true }]
+      : sc === 'retry' ? [{ seq: base, attempt: 1, ok: false }, { seq: base.slice(1), attempt: 2, ok: true }]
+      : [{ seq: base, attempt: 1, ok: false }, { seq: base.slice(1), attempt: 2, ok: false }];
+    let final = true;
+    for (const round of rounds) {
+      for (const key of round.seq) {
+        this.moveToken('bc', this.bcR[key]);
+        await this.sleep(430);
+        if (key === 'observe') this.pushLog('bc', 'observe → repository state read');
+        if (key === 'plan') { this.setSim('bc', { verifySub: 'attempt ' + round.attempt }); this.pushLog('bc', 'plan → bounded plan constructed (attempt ' + round.attempt + ')'); }
+        if (key === 'execute') this.pushLog('bc', 'execute → provider adapter, isolated worktree');
+        if (key === 'review') this.pushLog('bc', 'review → independent review complete');
+        if (key === 'verify') {
+          this.setNode('bc', 'verify', round.ok ? 'pass' : 'fail');
+          this.setSim('bc', { verifySub: 'attempt ' + round.attempt + ': ' + (round.ok ? 'passed' : 'failed') });
+          this.pushLog('bc', 'verify → attempt ' + round.attempt + ' ' + (round.ok ? 'passed' : 'FAILED, retrying'), round.ok ? 'ok' : 'bad');
+          final = round.ok;
+        }
+      }
+    }
+    await this.sleep(280);
+    if (final) {
+      this.moveToken('bc', this.bcR.record); await this.sleep(300);
+      this.setNode('bc', 'record', 'pass');
+      this.pushLog('bc', 'recorded → append-only evidence written', 'ok');
+    } else {
+      this.moveToken('bc', this.bcR.host); await this.sleep(300);
+      this.setNode('bc', 'host', 'fail');
+      this.pushLog('bc', 'returned to host → bounded attempts (2) exhausted, no autonomous retry', 'bad');
+    }
+    this.setSim('bc', { running: false });
+  }
+
+  async spRun() {
+    if (this.state.sp.running) return;
+    const t = this.state.sp.t, version = this.state.sp.version;
+    this.runT0 = performance.now();
+    if (!this.logStore) this.logStore = { bc: [], sp: [] };
+    this.logStore.sp = [];
+    this.setSim('sp', { running: true, nodes: {}, logs: [], err: '', emitSub: '—' });
+    await this.sleep(60);
+    this.pushLog('sp', 'compile → target splunk ' + version);
+    const issues = [];
+    if (t.unknown) issues.push('unexpected field `laytout` — did you mean `layout`?');
+    if (t.missing) issues.push('missing required field `data_source`');
+    if (t.type) issues.push('`threshold` expects float, got str');
+
+    this.moveToken('sp', this.spR.generate); await this.sleep(400);
+    this.setNode('sp', 'generate', 'pass');
+    this.pushLog('sp', 'generate → payload built from model.py');
+
+    this.moveToken('sp', this.spR.valPy); await this.sleep(400);
+    if (issues.length) {
+      this.setNode('sp', 'valPy', 'fail'); this.setNode('sp', 'valNpm', 'idle'); this.setNode('sp', 'optimize', 'idle'); this.setNode('sp', 'emit', 'idle');
+      this.pushLog('sp', 'validate:pydantic → ' + issues.length + ' issue(s)', 'bad');
+      this.setSim('sp', { err: issues.join(' · '), running: false });
+      return;
+    }
+    this.setNode('sp', 'valPy', 'pass');
+    this.pushLog('sp', 'validate:pydantic → clean', 'ok');
+
+    this.moveToken('sp', this.spR.valNpm); await this.sleep(400);
+    if (t.diff) {
+      this.setNode('sp', 'valNpm', 'fail'); this.setNode('sp', 'optimize', 'idle'); this.setNode('sp', 'emit', 'idle');
+      this.pushLog('sp', 'validate:splunk-npm → rejected by official validator', 'bad');
+      this.setSim('sp', { err: "schema-valid, but Splunk's own validator rejects this shape — likely a field this target version doesn't recognize yet.", running: false });
+      return;
+    }
+    this.setNode('sp', 'valNpm', 'pass');
+    this.pushLog('sp', 'validate:splunk-npm → clean', 'ok');
+
+    this.moveToken('sp', this.spR.optimize); await this.sleep(400);
+    this.setNode('sp', 'optimize', 'pass');
+    this.pushLog('sp', 'optimize → normalized output');
+
+    this.moveToken('sp', this.spR.emit); await this.sleep(400);
+    this.setNode('sp', 'emit', 'pass');
+    const bytes = this.payloadRows().reduce((n, r) => n + r.t.length + 1, 0);
+    this.setSim('sp', { emitSub: version + ', ~' + bytes + 'b', running: false });
+    this.pushLog('sp', 'emit → compiled for splunk ' + version, 'ok');
+  }
+
+  payloadRows() {
+    const t = this.state.sp.t, rows = [];
+    rows.push({ t: '{', c: DIM });
+    rows.push({ t: '  "title": "Revenue",', c: DIM });
+    if (t.missing) rows.push({ t: '  // data_source omitted', c: CRIT });
+    else rows.push({ t: '  "data_source": "index=sales",', c: DIM });
+    rows.push({ t: '  "visualization": "line",', c: DIM });
+    rows.push(t.type ? { t: '  "threshold": "high"' + (t.unknown ? ',' : ''), c: CRIT } : { t: '  "threshold": 500000' + (t.unknown ? ',' : ''), c: DIM });
+    if (t.unknown) rows.push({ t: '  "laytout": "wide"', c: CRIT });
+    rows.push({ t: '}', c: DIM });
+    return rows;
+  }
+
+  downloadJSON() {
+    const payload = Object.assign({}, RESUME, { generatedAt: new Date().toISOString() });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'kennedy-mosoti-resume.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    this.setState({ resumeOpen: false });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const seg = on => ({ c: on ? '#140904' : DIM, b: on ? EMBER : 'transparent' });
+    const nav = k => ({ c: s.screen === k ? EMBER : DIM, b: s.screen === k ? 'rgba(255,122,69,.1)' : 'transparent' });
+    const set = s.activeTag ? new Set([s.activeTag]) : null;
+
+    const tagS = {};
+    for (const k of TAGS) {
+      const on = set ? set.has(k) : false;
+      tagS[k] = set
+        ? { bd: on ? EMBER : BORDER, bg: on ? EMBER : 'transparent', c: on ? '#140904' : DIM, op: on ? 1 : .3 }
+        : { bd: BORDER, bg: 'transparent', c: DIM, op: 1 };
+    }
+
+    const itemS = {};
+    for (const id of Object.keys(ITEM_TAGS)) {
+      const match = set ? ITEM_TAGS[id].some(t => set.has(t)) : true;
+      const open = s.openJob === id;
+      itemS[id] = { bd: set && match ? EMBER : BORDER, op: set && !match ? .3 : 1, body: open ? 'block' : 'none', icon: open ? '⌄' : '›' };
+    }
+
+    const nodeStyle = (which, id, faded) => {
+      const v = s[which].nodes[id];
+      if (v === 'pass') return { bd: EMBER, sh: 'inset 0 0 0 1px ' + EMBER, op: 1 };
+      if (v === 'fail') return { bd: CRIT, sh: 'inset 0 0 0 1px ' + CRIT, op: 1 };
+      if (v === 'idle') return { bd: BORDER, sh: 'none', op: .35 };
+      return { bd: BORDER, sh: 'none', op: faded ? .4 : 1 };
+    };
+
+    const logRow = l => ({ ts: l.ts, msg: l.msg, anim: s.reduced ? 'none' : 'km-line .2s ease', c: l.kind === 'ok' ? EMBER : l.kind === 'bad' ? CRIT : DIM });
+
+    const onTag = {};
+    for (const k of TAGS) onTag[k] = () => this.setState(st => ({ activeTag: st.activeTag === k ? null : k }));
+    const onJob = {};
+    for (const id of ['jpmc', 'dat', 'aws', 'ncr']) onJob[id] = () => this.setState(st => ({ openJob: st.openJob === id ? null : id }));
+
+    return {
+      canvasL: this.canvasL, canvasR: this.canvasR,
+      bcWrap: this.bcWrap, spWrap: this.spWrap, bcLogEl: this.bcLogEl, spLogEl: this.spLogEl,
+      bcR: this.bcR, spR: this.spR,
+
+      bgShow: s.w >= 1280 ? 'block' : 'none',
+      isHome: s.screen === 'home', isBC: s.screen === 'bc', isSP: s.screen === 'sp',
+      dirA: s.dir === 'a', dirB: s.dir === 'b',
+      navS: { home: nav('home'), bc: nav('bc'), sp: nav('sp') },
+      dirS: { a: seg(s.dir === 'a'), b: seg(s.dir === 'b') },
+      goHome: e => { if (e) e.preventDefault(); this.setState({ screen: 'home' }); window.scrollTo(0, 0); },
+      goBC: e => { if (e) e.preventDefault(); this.setState({ screen: 'bc' }); window.scrollTo(0, 0); },
+      goSP: e => { if (e) e.preventDefault(); this.setState({ screen: 'sp' }); window.scrollTo(0, 0); },
+      setDirA: () => this.setState({ dir: 'a' }),
+      setDirB: () => this.setState({ dir: 'b' }),
+      toggleReduced: () => this.setState(st => ({ reduced: !st.reduced })),
+      motionLabel: s.reduced ? 'off' : 'on',
+      motionColor: s.reduced ? DIM : EMBER,
+      caretAnim: s.reduced ? 'none' : 'km-blink 1s step-end infinite',
+      typedCmd: s.typed,
+
+      toggleResume: () => this.setState(st => ({ resumeOpen: !st.resumeOpen })),
+      resumeMenu: s.resumeOpen ? 'block' : 'none',
+      printResume: e => { if (e) e.preventDefault(); this.setState({ resumeOpen: false }); setTimeout(() => window.print(), 60); },
+      downloadJSON: e => { if (e) e.preventDefault(); this.downloadJSON(); },
+
+      m: Object.assign({}, s.m, { fpsColor: this.fps && this.fps < 40 ? '#f2b134' : '#ece7dd' }),
+
+      tagS, itemS, onTag, onJob,
+      filterNote: s.activeTag ? 'filtering on: ' + (TAG_LABEL[s.activeTag] || s.activeTag) + ' — click again to clear.' : '',
+
+      tokenTrans: s.reduced ? 'none' : 'transform .4s cubic-bezier(.4,0,.2,1)',
+
+      bcSeg: { clean: seg(s.bc.scenario === 'clean'), retry: seg(s.bc.scenario === 'retry'), exhausted: seg(s.bc.scenario === 'exhausted') },
+      bcSetClean: () => this.setSim('bc', { scenario: 'clean' }),
+      bcSetRetry: () => this.setSim('bc', { scenario: 'retry' }),
+      bcSetExhausted: () => this.setSim('bc', { scenario: 'exhausted' }),
+      bcRun: () => this.bcRun(),
+      bcRunning: s.bc.running,
+      bcBtnOp: s.bc.running ? .5 : 1,
+      bcVerifySub: s.bc.verifySub,
+      bcToken: { t: 'translate(' + s.bc.token.x + 'px,' + s.bc.token.y + 'px)', o: s.bc.token.o },
+      bcS: {
+        observe: nodeStyle('bc', 'observe'), plan: nodeStyle('bc', 'plan'), execute: nodeStyle('bc', 'execute'),
+        review: nodeStyle('bc', 'review'), verify: nodeStyle('bc', 'verify'),
+        record: nodeStyle('bc', 'record', true), host: nodeStyle('bc', 'host', true)
+      },
+      bcLogs: s.bc.logs.map(logRow),
+
+      spVer: { v94: seg(s.sp.version === '9.4.x'), v100: seg(s.sp.version === '10.0.x'), v102: seg(s.sp.version === '10.2.x'), v104: seg(s.sp.version === '10.4.x') },
+      spSetV94: () => this.setSim('sp', { version: '9.4.x' }),
+      spSetV100: () => this.setSim('sp', { version: '10.0.x' }),
+      spSetV102: () => this.setSim('sp', { version: '10.2.x' }),
+      spSetV104: () => this.setSim('sp', { version: '10.4.x' }),
+      spT: s.sp.t,
+      spTogUnknown: () => this.setSim('sp', { t: Object.assign({}, s.sp.t, { unknown: !s.sp.t.unknown }) }),
+      spTogMissing: () => this.setSim('sp', { t: Object.assign({}, s.sp.t, { missing: !s.sp.t.missing }) }),
+      spTogType: () => this.setSim('sp', { t: Object.assign({}, s.sp.t, { type: !s.sp.t.type }) }),
+      spTogDiff: () => this.setSim('sp', { t: Object.assign({}, s.sp.t, { diff: !s.sp.t.diff }) }),
+      spRun: () => this.spRun(),
+      spRunning: s.sp.running,
+      spBtnOp: s.sp.running ? .5 : 1,
+      spEmitSub: s.sp.emitSub,
+      spErr: s.sp.err,
+      spErrShow: s.sp.err ? 'block' : 'none',
+      spPayload: this.payloadRows(),
+      spToken: { t: 'translate(' + s.sp.token.x + 'px,' + s.sp.token.y + 'px)', o: s.sp.token.o },
+      spS: {
+        generate: nodeStyle('sp', 'generate'), valPy: nodeStyle('sp', 'valPy'), valNpm: nodeStyle('sp', 'valNpm'),
+        optimize: nodeStyle('sp', 'optimize'), emit: nodeStyle('sp', 'emit')
+      },
+      spLogs: s.sp.logs.map(logRow)
+    };
+  }
+}
+</script>
+</body>
+</html>

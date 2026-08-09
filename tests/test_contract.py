@@ -45,8 +45,8 @@ def mutable_raw(raw: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(raw)
 
 
-def test_shipped_contract_is_v1(contract: DirectionContract) -> None:
-    assert contract.meta.version == 1
+def test_shipped_contract_is_v2(contract: DirectionContract) -> None:
+    assert contract.meta.version == 2
     assert contract.palette.space == "oklch"
     assert contract.references and contract.anti_references
 

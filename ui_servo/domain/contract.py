@@ -110,7 +110,7 @@ type FontFamilyName = Annotated[
     str, StringConstraints(pattern=r"^-?[A-Za-z0-9][A-Za-z0-9 _-]*$", max_length=64)
 ]
 
-SUPPORTED_VERSION: Literal[1] = 1
+SUPPORTED_VERSION: Literal[2] = 2
 ANIMATABLE_PROPERTIES: frozenset[str] = frozenset({"transform", "opacity"})
 EASING_KEYWORDS: frozenset[str] = frozenset({"linear"})
 ANCHOR_STEP: str = "base"
@@ -226,6 +226,7 @@ class Palette(BaseModel):
     border: LchColor
     accent: LchColor
     accent_2: LchColor = Field(alias="accent-2")
+    critical: LchColor
 
     @model_validator(mode="after")
     def _legible(self) -> Self:
@@ -249,6 +250,7 @@ class Palette(BaseModel):
             ("border", self.border),
             ("accent", self.accent),
             ("accent-2", self.accent_2),
+            ("critical", self.critical),
         )
 
     def color_scheme(self) -> Literal["dark", "light"]:
@@ -491,7 +493,7 @@ class Meta(BaseModel):
     @classmethod
     def _supported(cls, version: int) -> int:
         match version:
-            case 1:
+            case 2:
                 return version
             case other:
                 raise ValueError(f"contract version {other} unsupported; this build reads v{SUPPORTED_VERSION}")

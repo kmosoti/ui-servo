@@ -455,14 +455,38 @@ pub fn not_found(state: &AppState) -> Markup {
     )
 }
 
-/// Copy `assets/` into `dist/assets/`, returning the file count.
+/// True for a toolchain or documentation artifact that lives under `assets/`
+/// for the benefit of whoever next works on the islands crate, but that no
+/// page or script ever fetches: its package manifest, its generated
+/// TypeScript types, and its README. `motion.json` is in the same bucket for
+/// a different reason — it is a *server-side* boot input read by `AppState`
+/// (see `state::MOTION_JSON`), not a browser asset, so it has no business in
+/// a tree nothing but a static file server will ever read. `dist/` is a
+/// runtime tree, not a mirror of `assets/`, and this is the boundary between
+/// the two.
 ///
-/// Every entry is checked for containment on the way, even though `AppState`
-/// already refused to boot on an escaping symlink. That check ran when the
-/// process started; this one runs at the moment the bytes are read, and a
-/// symlink is precisely the thing that can be repointed in between. The server
-/// learned this the same way — see `server::static_asset`, which re-establishes
-/// containment per request for exactly this reason.
+/// Takes a file *name*, not a path, so the same name is caught wherever it
+/// recurs under `assets/`. The `.d.ts` case is a suffix test rather than a
+/// `Path::extension()` comparison because `Path::extension()` of `foo.d.ts`
+/// returns `ts`, not `d.ts` — an extension-based match would silently miss
+/// every one of these files.
+fn is_dev_artifact(name: &str) -> bool {
+    name == "README.md"
+        || name == "package.json"
+        || name == crate::state::MOTION_JSON
+        || name.ends_with(".d.ts")
+}
+
+/// Copy `assets/` into `dist/assets/`, returning the count of files actually
+/// copied — [`is_dev_artifact`] files are walked but skipped, so this is not
+/// simply the size of `assets/`.
+///
+/// Every copied entry is checked for containment on the way, even though
+/// `AppState` already refused to boot on an escaping symlink. That check ran
+/// when the process started; this one runs at the moment the bytes are read,
+/// and a symlink is precisely the thing that can be repointed in between. The
+/// server learned this the same way — see `server::static_asset`, which
+/// re-establishes containment per request for exactly this reason.
 fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
     // Canonicalised once, up front: this is the tree every opened file must
     // prove it still lives in at the moment it is read.
@@ -471,7 +495,26 @@ fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
         source,
     })?;
     let files = walk(from)?;
+    let mut copied = 0usize;
     for file in &files {
+        let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if is_dev_artifact(name) {
+            // Skipped, not merely uncopied: a skipped entry never reaches
+            // `open_plain_file` below, so it is worth the one extra stat call
+            // to keep this loop's own promise — a symlink is refused, never
+            // silently waved through — for the handful of names that leave
+            // the loop early. Not folded into `open_plain_file` itself,
+            // because that function's job is opening a file this exporter
+            // *will* publish; these never will.
+            let is_symlink = std::fs::symlink_metadata(file)
+                .map(|meta| meta.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_symlink {
+                return Err(ExportError::AssetSymlink { link: file.clone() });
+            }
+            continue;
+        }
+
         // `strip_prefix` on the `Path`, not on a lossy string: a filename may
         // legitimately contain a backslash on Unix, and stringifying first
         // turned one file into two nested directories.
@@ -494,8 +537,9 @@ fn copy_assets(from: &Path, to: &Path) -> Result<usize, ExportError> {
             path: destination.clone(),
             source,
         })?;
+        copied += 1;
     }
-    Ok(files.len())
+    Ok(copied)
 }
 
 /// Open one asset, having established that it is a plain file and that the
@@ -1063,6 +1107,89 @@ mod tests {
             );
             assert!(!body.contains("probe.js"), "{page} loads the probe");
         }
+    }
+
+    /// `assets/` carries files for the benefit of whoever next works on the
+    /// islands crate — its README, its `package.json`, its generated `.d.ts`
+    /// types — and, separately, `motion.json`, a server-side boot input read
+    /// by `AppState` rather than by any page. None of the five are linked
+    /// from a page, fetched by a script, or belong in a tree a file host
+    /// serves verbatim to strangers. The runtime files that *are* fetched
+    /// must still make it across, so this checks both sides of the cut.
+    #[test]
+    fn the_export_ships_no_dev_artifacts() {
+        let (scratch, report) = exported();
+        let assets_dir = scratch.path().join(ASSETS_DIR);
+        let copied = walk(&assets_dir).expect("the exported assets tree walks");
+
+        // The four names actually committed under `site/assets/` today — a
+        // regression here means the real files, not just a hypothetical
+        // name, made it into the export.
+        for pruned in [
+            "README.md",
+            "package.json",
+            "motion.json",
+            "ui_servo_islands.d.ts",
+            "ui_servo_islands_bg.wasm.d.ts",
+        ] {
+            assert!(
+                !copied
+                    .iter()
+                    .any(|file| file.file_name().and_then(|n| n.to_str()) == Some(pruned)),
+                "{pruned} shipped in the export"
+            );
+        }
+
+        // The predicate itself, walked against the exported tree: this is
+        // what keeps this test in sync with `copy_assets` if the skip list
+        // ever grows or narrows, rather than re-deriving its own copy of it.
+        for file in &copied {
+            let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            assert!(
+                !is_dev_artifact(name),
+                "{} shipped in the export",
+                file.display()
+            );
+        }
+
+        for runtime_file in [
+            "islands/ui_servo_islands_bg.wasm",
+            "islands/ui_servo_islands.js",
+            "islands/loader.js",
+            "fonts/fonts.css",
+        ] {
+            assert!(
+                assets_dir.join(runtime_file).is_file(),
+                "{runtime_file} is missing from the export"
+            );
+        }
+
+        assert!(report.links > 0, "the link check found nothing to check");
+    }
+
+    /// A file named like a pruned dev artifact but that is actually a symlink
+    /// is refused loudly, the same as any other symlink in `assets/` — being
+    /// skipped from the copy must not also mean being waved through
+    /// unchecked. See `is_dev_artifact` and the skip in `copy_assets`.
+    #[test]
+    fn a_symlink_named_like_a_pruned_artifact_is_refused() {
+        let scratch = Scratch::new();
+        let assets = scratch.path().join("assets");
+        let outside = scratch.path().join("outside.txt");
+        std::fs::create_dir_all(&assets).expect("scratch is creatable");
+        write(&outside, b"not for publication").expect("scratch is writable");
+        std::os::unix::fs::symlink(&outside, assets.join("motion.json")).expect("symlink");
+
+        match copy_assets(&assets, &scratch.path().join("out")) {
+            Err(ExportError::AssetSymlink { link }) => {
+                assert_eq!(link, assets.join("motion.json"))
+            }
+            other => panic!("a symlink named motion.json was not refused: {other:?}"),
+        }
+        assert!(
+            !scratch.path().join("out").join("motion.json").exists(),
+            "the symlinked file reached the export"
+        );
     }
 
     /// The link check is the gate, so it has to be able to fail.

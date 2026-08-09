@@ -161,8 +161,13 @@ the critics were shown and what they returned.
 
 ## Layout
 
+_As of 2026-08, top level._
+
 ```
+.github/workflows/         CI: python tests, rust tests, static export
 direction/direction.toml   the versioned reference signal
+direction/parts/           per-unit part specs the builders work from
+direction/references/      golden reference pages the critics compare against
 ui_servo/domain/           pure domain: contract, rubric, blandness, QD archive
 ui_servo/ports/            interfaces the loop needs from the world
 ui_servo/control/          the loops: regulator (fast), critique + explore (slow)
@@ -171,6 +176,7 @@ ui_servo/cli/              composition roots — the only layer that names an ad
 probe/probe.js             in-browser sensor runtime
 site/                      the artefact under control: axum + htmx + WASM islands
 demo/                      one full round, with its evidence
+evidence/                  committed exemplars the gauntlet skill replays in tests
 tools/                     unit specs and the adversarial review harness
 tests/                     deterministic suite, including the dependency-rule guard
 REVIEW_LOG.md              critic verdicts per unit, kept for audit

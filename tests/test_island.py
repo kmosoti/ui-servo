@@ -53,6 +53,8 @@ import pytest
 sync_api = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
 from playwright.sync_api import Browser, Page, Route, sync_playwright  # noqa: E402
 
+pytestmark = pytest.mark.playwright
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE = REPO_ROOT / "site"
 ISLAND_CRATE = SITE / "islands"

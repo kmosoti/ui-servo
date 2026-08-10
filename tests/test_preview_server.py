@@ -23,15 +23,14 @@ mode a tiered loop is most exposed to, so it is worth its seconds.
 
 import json
 import os
-import socket
-import threading
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from litestar import Litestar
+from litestar.testing import TestClient
 
 from ui_servo.adapters.beacon_ingest import (
     MAX_BODY_BYTES,
@@ -42,6 +41,7 @@ from ui_servo.adapters.beacon_ingest import (
     decode_batch,
     validate_turn_id,
 )
+from ui_servo.adapters.granian_server import serve
 from ui_servo.adapters.jsonl_store import JsonlEvidenceStore
 from ui_servo.adapters.preview_server import (
     FIXTURE_HTML,
@@ -395,10 +395,24 @@ class TestIngestHealth:
         assert "the disk is full" in caplog.text
         assert app.state.ingest_health.lost == 1
 
-    def test_the_router_shares_the_apps_counters(self) -> None:
+    def test_the_router_shares_the_apps_counters(self, tmp_path: Path) -> None:
+        """The counters passed in are the ones the route mutates, not a copy.
+
+        Exercised through a request rather than an attribute, because the
+        object the route writes to is what matters -- ``create_app`` reaches
+        the same counters through ``app.state.ingest_health`` (see the two
+        tests above), and this is the same guarantee at the router's own
+        boundary, one layer further in.
+        """
         health = IngestHealth()
-        router = create_beacon_router(JsonlEvidenceStore("/tmp"), turn_id=TURN, health=health)
-        assert router.health is health
+        router = create_beacon_router(
+            JsonlEvidenceStore(tmp_path / "evidence"), turn_id=TURN, health=health
+        )
+        app = Litestar(route_handlers=[router], openapi_config=None, logging_config=None)
+        with TestClient(app) as router_client:
+            assert post_beacon(router_client, [beacon_event()]).status_code == 204
+        assert health.batches == 1
+        assert health.stored == 1
 
 
 class TestDecodeBatch:
@@ -591,6 +605,35 @@ class TestFixtureRoute:
         assert "development route" in response.json()["detail"]
 
 
+class TestHeadRequests:
+    """Litestar, unlike Starlette, does not add ``HEAD`` to a route just
+    because ``GET`` is declared -- a route that forgot to ask for both would
+    405 a liveness probe or a ``curl -I`` that used to get a 200. This walks
+    the live route table rather than naming routes one at a time, so a route
+    added later is covered by construction instead of by remembering to.
+    """
+
+    def test_every_get_route_also_answers_head(self, client: TestClient) -> None:
+        get_routes = [route for route in client.app.routes if "GET" in route.methods]
+        assert get_routes, "the app has no GET routes to check"
+        for route in get_routes:
+            assert "HEAD" in route.methods, f"{route.path} takes GET but not HEAD"
+
+    def test_head_matches_get_on_concrete_paths(self, client: TestClient) -> None:
+        concrete_paths = [
+            route.path
+            for route in client.app.routes
+            if "GET" in route.methods and "{" not in route.path
+        ]
+        assert concrete_paths, "no concrete (parameter-free) GET routes to check"
+        for path in concrete_paths:
+            assert client.head(path).status_code == client.get(path).status_code
+
+    def test_head_matches_get_on_the_candidate_route(self, client: TestClient) -> None:
+        assert client.head("/candidate/hero").status_code == client.get("/candidate/hero").status_code
+        assert client.head("/candidate/nosuch").status_code == client.get("/candidate/nosuch").status_code
+
+
 class TestSplitDocument:
     def test_a_bare_fragment_passes_through(self) -> None:
         assert split_document(FRAGMENT) == ("", "", FRAGMENT)
@@ -652,48 +695,6 @@ class TestSplitDocument:
 
 
 # ----------------------------------------------------------- browser round trip ---
-
-
-def _free_socket() -> socket.socket:
-    """A bound listening socket, handed to uvicorn so no port race can occur."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(16)
-    return sock
-
-
-class _Preview:
-    """The app on a real port, because ``sendBeacon`` cannot talk to a TestClient."""
-
-    def __init__(self, app: object) -> None:
-        import uvicorn
-
-        self.socket = _free_socket()
-        self.port = self.socket.getsockname()[1]
-        self.server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
-        self.thread = threading.Thread(
-            target=lambda: self.server.run(sockets=[self.socket]), daemon=True
-        )
-
-    def __enter__(self) -> "_Preview":
-        self.thread.start()
-        deadline = time.monotonic() + 20
-        while not self.server.started and time.monotonic() < deadline:
-            if not self.thread.is_alive():
-                raise RuntimeError("preview server thread died during startup")
-            time.sleep(0.02)
-        if not self.server.started:
-            raise RuntimeError("preview server did not start")
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=20)
-        self.socket.close()
-
-    def url(self, path: str) -> str:
-        return f"http://127.0.0.1:{self.port}{path}"
 
 
 MISSING_BROWSER = (
@@ -767,12 +768,13 @@ def test_a_real_browser_running_the_probe_fills_the_evidence_store(
     app = create_app(tmp_path, store, contract, TURN, dev=True)
 
     console: list[str] = []
-    with _Preview(app) as preview, playwright_api.sync_playwright() as driver:
+    # A real port, because ``sendBeacon`` cannot talk to a TestClient.
+    with serve(app) as base_url, playwright_api.sync_playwright() as driver:
         browser = _launch_chromium(driver)
         try:
             page = browser.new_page(viewport={"width": 800, "height": 600})
             page.on("console", lambda message: console.append(message.text))
-            page.goto(preview.url("/fixture"), wait_until="load")
+            page.goto(f"{base_url}/fixture", wait_until="load")
 
             # The probe batches non-urgent kinds on a 2 s timer; poll rather than
             # sleep a fixed amount so a fast machine is not punished for it.

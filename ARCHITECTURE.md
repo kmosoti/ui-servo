@@ -133,7 +133,7 @@ sits outside all of it.
   no model, no filesystem. Pure functions of parsed data.
 - `ui_servo/ports/` defines the interfaces the loop needs — `SanitizerPort`,
   `SensorPort`, `JudgePort`, `EvidenceStorePort`, `ExemplarStorePort` — in terms of
-  domain types. Domain and pydantic only: an interface that imports FastAPI has
+  domain types. Domain and pydantic only: an interface that imports Litestar has
   stopped being an interface.
 - `ui_servo/control/` imports `domain` and `ports` — **never** `adapters`, and **no
   third-party libraries at all**. The loops must be runnable end-to-end against fakes; if a
@@ -165,7 +165,7 @@ sits outside all of it.
 Enforced by `tests/test_architecture.py`, which walks every module with `ast` (no imports
 executed) and checks both halves of the table: which `ui_servo` packages a layer reaches and
 which distributions it reaches. The guard's own detection logic is tested against synthetic
-sources — control importing Playwright, ports importing FastAPI, domain importing a
+sources — control importing Playwright, ports importing Litestar, domain importing a
 non-domain `ui_servo` package — because a guard that has never been shown to fire is not a
 guard.
 

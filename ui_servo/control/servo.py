@@ -41,7 +41,7 @@ markup notes are dropped rather than sent if they carry the same leak.
 
 **Pure control.** Everything imported here is the standard library, the domain
 or the ports, which is what makes :func:`run_round` runnable against fakes and
-what keeps Playwright, nh3, FastAPI and uvicorn out of any process that merely
+what keeps Playwright, nh3, Litestar and granian out of any process that merely
 wants the loop. The composition root -- where those adapters are actually chosen
 -- is :mod:`ui_servo.cli.servo`, one ring further out.
 """

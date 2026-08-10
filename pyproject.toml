@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Tiered feedback loop for agent-generated UI: deterministic gates for correctness, cross-family model panel for critique, quality-diversity sampling for taste"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.115",      # Tier 1 beacon ingest + evidence API
-    "uvicorn[standard]>=0.32",
+    "litestar>=2.24",      # Tier 1 beacon ingest + evidence API
+    "granian>=2.8",        # Rust (hyper) ASGI server — serves the above, in tests and on a droplet
     "nh3>=0.2",            # Rust (ammonia) HTML sanitizer — Tier 0
     "orjson>=3.10",        # Rust JSON — evidence store + beacon ingest
     "pydantic>=2.9",       # pydantic-core is Rust; the only third-party dep the domain may use
@@ -18,7 +18,7 @@ dependencies = [
 
 [dependency-groups]
 # pyyaml is used directly by tests/test_gauntlet_skill.py; it must not be relied
-# on as a transitive extra of uvicorn[standard].
+# on as a transitive dependency of litestar.
 dev = ["pytest>=8.3", "pyyaml>=6.0"]
 
 [tool.pytest.ini_options]

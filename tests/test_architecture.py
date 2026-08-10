@@ -4,7 +4,7 @@ Hexagonal layering is only real if something fails when it is broken. This walks
 every module in the ``ui_servo`` package with :mod:`ast` -- no imports executed,
 no third-party linter -- and checks two things per layer: which ``ui_servo``
 packages it may reach, and which non-stdlib distributions it may reach. The
-second half matters as much as the first: a ``ports`` module that imports FastAPI
+second half matters as much as the first: a ``ports`` module that imports Litestar
 has not violated an arrow on a diagram, but it has dragged infrastructure into
 the interface layer, which is the same failure by a slower route.
 
@@ -406,7 +406,7 @@ class TestTheGuardItself:
         )
 
     def test_ports_may_not_import_infrastructure(self) -> None:
-        for source in ("import fastapi\n", "import playwright\n", "import nh3\n"):
+        for source in ("import litestar\n", "import playwright\n", "import nh3\n"):
             imports = self._imports(source, "ui_servo.ports.browser")
             assert violations("ui_servo.ports.browser", imports), source
 
@@ -460,7 +460,7 @@ class TestTheGuardItself:
         assert violations("ui_servo.adapters.chromium", imports)
 
     def test_root_package_stays_a_namespace(self) -> None:
-        assert violations(ROOT_PACKAGE, self._imports("import fastapi\n", ROOT_PACKAGE, is_package=True))
+        assert violations(ROOT_PACKAGE, self._imports("import litestar\n", ROOT_PACKAGE, is_package=True))
         assert violations(ROOT_PACKAGE, self._imports("from ui_servo import adapters\n", ROOT_PACKAGE, is_package=True))
 
     def test_resolves_relative_imports(self) -> None:

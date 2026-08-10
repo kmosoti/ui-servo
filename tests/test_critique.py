@@ -658,7 +658,7 @@ class TestFailureKinds:
         }
 
     def test_it_classifies_only_kinds_something_actually_emits(self) -> None:
-        pytest.importorskip("fastapi")
+        pytest.importorskip("litestar")
         from ui_servo.adapters.beacon_ingest import KNOWN_PROBE_KINDS
         from ui_servo.ports.sanitizer import ViolationKind
 

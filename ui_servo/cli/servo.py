@@ -8,14 +8,16 @@ which, which is what lets the same loop run against fakes in the test suite.
 
 import argparse
 import contextlib
-import threading
-import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-import uvicorn
-
-from ui_servo.adapters import cli_judges, jsonl_store, playwright_sensor, preview_server
+from ui_servo.adapters import (
+    cli_judges,
+    granian_server,
+    jsonl_store,
+    playwright_sensor,
+    preview_server,
+)
 from ui_servo.adapters.nh3_sanitizer import default_sanitizer
 from ui_servo.control.servo import (
     Stores,
@@ -45,20 +47,8 @@ def previews(
     way, out of the evidence stock.
     """
     app = preview_server.create_app(candidates_dir, store, contract, turn_id, dev=False)
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 30.0
-    while not server.started and thread.is_alive() and time.monotonic() < deadline:
-        time.sleep(0.02)
-    if not server.started:
-        raise RuntimeError("the preview server did not start")
-    port = server.servers[0].sockets[0].getsockname()[1]
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    with granian_server.serve(app) as base_url:
+        yield base_url
 
 
 def build_parser() -> argparse.ArgumentParser:

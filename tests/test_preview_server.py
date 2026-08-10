@@ -23,15 +23,13 @@ mode a tiered loop is most exposed to, so it is worth its seconds.
 
 import json
 import os
-import socket
-import threading
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from litestar.testing import TestClient
 
 from ui_servo.adapters.beacon_ingest import (
     MAX_BODY_BYTES,
@@ -42,6 +40,7 @@ from ui_servo.adapters.beacon_ingest import (
     decode_batch,
     validate_turn_id,
 )
+from ui_servo.adapters.granian_server import serve
 from ui_servo.adapters.jsonl_store import JsonlEvidenceStore
 from ui_servo.adapters.preview_server import (
     FIXTURE_HTML,
@@ -654,48 +653,6 @@ class TestSplitDocument:
 # ----------------------------------------------------------- browser round trip ---
 
 
-def _free_socket() -> socket.socket:
-    """A bound listening socket, handed to uvicorn so no port race can occur."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("127.0.0.1", 0))
-    sock.listen(16)
-    return sock
-
-
-class _Preview:
-    """The app on a real port, because ``sendBeacon`` cannot talk to a TestClient."""
-
-    def __init__(self, app: object) -> None:
-        import uvicorn
-
-        self.socket = _free_socket()
-        self.port = self.socket.getsockname()[1]
-        self.server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
-        self.thread = threading.Thread(
-            target=lambda: self.server.run(sockets=[self.socket]), daemon=True
-        )
-
-    def __enter__(self) -> "_Preview":
-        self.thread.start()
-        deadline = time.monotonic() + 20
-        while not self.server.started and time.monotonic() < deadline:
-            if not self.thread.is_alive():
-                raise RuntimeError("preview server thread died during startup")
-            time.sleep(0.02)
-        if not self.server.started:
-            raise RuntimeError("preview server did not start")
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=20)
-        self.socket.close()
-
-    def url(self, path: str) -> str:
-        return f"http://127.0.0.1:{self.port}{path}"
-
-
 MISSING_BROWSER = (
     "executable doesn't exist",
     "playwright install",
@@ -767,12 +724,13 @@ def test_a_real_browser_running_the_probe_fills_the_evidence_store(
     app = create_app(tmp_path, store, contract, TURN, dev=True)
 
     console: list[str] = []
-    with _Preview(app) as preview, playwright_api.sync_playwright() as driver:
+    # A real port, because ``sendBeacon`` cannot talk to a TestClient.
+    with serve(app) as base_url, playwright_api.sync_playwright() as driver:
         browser = _launch_chromium(driver)
         try:
             page = browser.new_page(viewport={"width": 800, "height": 600})
             page.on("console", lambda message: console.append(message.text))
-            page.goto(preview.url("/fixture"), wait_until="load")
+            page.goto(f"{base_url}/fixture", wait_until="load")
 
             # The probe batches non-urgent kinds on a 2 s timer; poll rather than
             # sleep a fixed amount so a fast machine is not punished for it.

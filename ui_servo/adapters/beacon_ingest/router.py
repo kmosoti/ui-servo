@@ -56,7 +56,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import orjson
-from fastapi import APIRouter, Request, Response
+from litestar import Request, Response, Router, get, post
 
 from ui_servo.domain.evidence import Signal, TurnId
 from ui_servo.ports.store import EvidenceStorePort, StoreError
@@ -443,6 +443,25 @@ async def read_limited_body(request: Request, *, limit: int = MAX_BODY_BYTES) ->
     return b"".join(chunks)
 
 
+class BeaconRouter(Router):
+    """A router that carries the counters its own routes write to.
+
+    Litestar's :class:`~litestar.router.Router` declares ``__slots__``, so the
+    counters cannot be stapled onto an instance after the fact -- which is the
+    better outcome, because the sharing was never incidental. Whatever mounts
+    this router (the preview server today, an ingest daemon tomorrow) and
+    whatever reads the health route are looking at *one* :class:`IngestHealth`,
+    and declaring the attribute here makes that part of the type rather than a
+    convention held together by a ``type: ignore``.
+    """
+
+    __slots__ = ("health",)
+
+    def __init__(self, *args: Any, health: IngestHealth, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.health = health
+
+
 def create_beacon_router(
     store: EvidenceStorePort,
     *,
@@ -451,8 +470,8 @@ def create_beacon_router(
     health_path: str = HEALTH_PATH,
     source: str = PROBE_SOURCE,
     health: IngestHealth | None = None,
-) -> APIRouter:
-    """An ``APIRouter`` exposing ``POST {path}`` for ``probe/probe.js``.
+) -> BeaconRouter:
+    """A router exposing ``POST {path}`` for ``probe/probe.js``.
 
     The store is injected rather than constructed so the same router serves the
     preview server, a test's temporary directory and a future ingest daemon
@@ -460,23 +479,27 @@ def create_beacon_router(
     here, at startup, because it is the fallback every unusable client id lands
     on -- if it were bad, the failure would surface as evidence quietly going
     missing under load.
+
+    Both routes answer with an explicit :class:`~litestar.response.Response`
+    rather than a declared status code, because the status *is* the report: 204
+    for accepted, 400 for a body that was not JSON, 413 for one that was too
+    big, and 200-or-503 on health. Nothing here may fall through to a
+    framework default.
     """
     validate_turn_id(turn_id)
-    router = APIRouter()
     counters = health if health is not None else IngestHealth()
-    router.health = counters  # type: ignore[attr-defined]
 
-    def _refuse(status: int, message: str) -> Response:
+    def _refuse(status: int, message: str) -> Response[bytes]:
         counters.refused += 1
         counters.last_error = message
         return Response(
-            content=orjson.dumps({"error": message}),
+            orjson.dumps({"error": message}),
             media_type="application/json",
             status_code=status,
         )
 
-    @router.post(path, status_code=204, include_in_schema=False)
-    async def ingest(request: Request) -> Response:
+    @post(path, include_in_schema=False)
+    async def ingest(request: Request) -> Response[bytes]:
         try:
             body = await read_limited_body(request)
         except BeaconTooLarge as error:
@@ -490,19 +513,19 @@ def create_beacon_router(
             # line is allowed to be slow enough to matter.
             return _refuse(400, str(error))
         _append(store, signals, counters)
-        return Response(status_code=204)
+        return Response(b"", status_code=204)
 
-    @router.get(health_path, include_in_schema=False)
-    async def ingest_health() -> Response:
+    @get(health_path, include_in_schema=False)
+    async def ingest_health() -> Response[bytes]:
         # 503 when evidence has been lost, so a liveness check notices the one
         # failure that would otherwise be invisible until a gate read an empty turn.
         return Response(
-            content=orjson.dumps(counters.as_dict()),
+            orjson.dumps(counters.as_dict()),
             media_type="application/json",
             status_code=200 if counters.ok else 503,
         )
 
-    return router
+    return BeaconRouter(path="/", route_handlers=[ingest, ingest_health], health=counters)
 
 
 def _append(store: EvidenceStorePort, signals: Iterable[Signal], health: IngestHealth) -> int:

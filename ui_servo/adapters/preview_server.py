@@ -49,8 +49,10 @@ from pathlib import Path
 from typing import Any, Final
 
 import orjson
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from litestar import Litestar, MediaType, Request, Response, get
+from litestar.datastructures import State
+from litestar.exceptions import HTTPException, NotFoundException
+from litestar.params import FromPath
 
 from ui_servo.adapters.beacon_ingest import (
     BEACON_PATH,
@@ -439,13 +441,34 @@ def candidate_path(candidates_dir: Path, name: str) -> Path:
     the candidates directory is otherwise a way out of it).
     """
     if not _SAFE_CANDIDATE.fullmatch(name):
-        raise HTTPException(status_code=404, detail=f"no candidate named {name!r}")
+        raise NotFoundException(detail=f"no candidate named {name!r}")
     root = candidates_dir.resolve()
     for suffix in CANDIDATE_SUFFIXES:
         found = (root / f"{name}{suffix}").resolve()
         if found.is_relative_to(root) and found.is_file():
             return found
-    raise HTTPException(status_code=404, detail=f"no candidate named {name!r}")
+    raise NotFoundException(detail=f"no candidate named {name!r}")
+
+
+def _detail_only(_: Request, error: HTTPException) -> Response[bytes]:
+    """``{"detail": ...}``: the error envelope this server has always sent.
+
+    Litestar's own envelope adds a ``status_code`` field that repeats the status
+    line. Kept to the older, narrower shape on purpose: these bodies are read by
+    a human holding curl and by the tests that pin them, and a change of web
+    framework is not a reason for either to start reading a different body.
+
+    Scoped to :class:`~litestar.exceptions.HTTPException`, which is only ever
+    the two refusals this module raises -- a candidate or fixture that is not
+    there, and a probe this machine cannot serve. An exception that is *not* an
+    HTTP one is a bug rather than an answer, and still reaches Litestar's own
+    handler with its traceback intact.
+    """
+    return Response(
+        orjson.dumps({"detail": error.detail}),
+        media_type=MediaType.JSON,
+        status_code=error.status_code,
+    )
 
 
 def create_app(
@@ -458,7 +481,7 @@ def create_app(
     probe_js: Path | None = None,
     fixture_html: Path | None = FIXTURE_HTML,
     site_css: Path | None = SITE_CSS,
-) -> FastAPI:
+) -> Litestar:
     """Build the preview app around one contract, one store and one turn.
 
     Fails at construction rather than at request time for the two things that
@@ -477,23 +500,14 @@ def create_app(
     if site_css is not None and Path(site_css).is_file():
         site_css_text = Path(site_css).read_text(encoding="utf-8")
     health = IngestHealth()
-    app = FastAPI(title="ui-servo preview", docs_url=None, redoc_url=None, openapi_url=None)
-    app.state.candidates_dir = candidates_dir
-    app.state.contract = contract
-    app.state.store = store
-    app.state.turn_id = turn_id
-    app.state.dev = dev
-    app.state.ingest_health = health
 
-    app.include_router(create_beacon_router(store, turn_id=turn_id, health=health))
-
-    @app.get("/candidate/{name}", response_class=HTMLResponse)
-    async def candidate(name: str) -> HTMLResponse:
+    @get("/candidate/{name:str}")
+    async def candidate(name: FromPath[str]) -> Response[str]:
         path = candidate_path(candidates_dir, name)
         head_extra, body_attrs, body_html = split_document(
             path.read_text(encoding="utf-8", errors="replace")
         )
-        return HTMLResponse(
+        return Response(
             render_shell(
                 title=f"candidate {name}",
                 tokens_css=tokens_css,
@@ -507,24 +521,24 @@ def create_app(
                 # candidate's name so anything outside them is still attributable
                 # instead of landing under a synthetic anon-N.
                 span_id=name,
-            )
+            ),
+            media_type=MediaType.HTML,
         )
 
-    @app.get("/fixture", response_class=HTMLResponse)
-    async def fixture() -> HTMLResponse:
+    @get("/fixture")
+    async def fixture() -> Response[str]:
         if fixture_html is None or not fixture_html.is_file():
-            raise HTTPException(
-                status_code=404,
+            raise NotFoundException(
                 detail=(
                     f"the probe fixture is not on this machine (looked at {fixture_html}). "
                     "/fixture is a development route: it serves tests/fixtures/probe.html "
                     "from a source checkout and is absent from an installed package."
-                ),
+                )
             )
         head_extra, body_attrs, body_html = split_document(
             fixture_html.read_text(encoding="utf-8")
         )
-        return HTMLResponse(
+        return Response(
             render_shell(
                 title="ui-servo probe fixture",
                 tokens_css=tokens_css,
@@ -538,22 +552,56 @@ def create_app(
                 # fallback, including the synthetic span for a body with no
                 # data-span-id.
                 span_id=None,
-            )
+            ),
+            media_type=MediaType.HTML,
         )
 
-    @app.get(PROBE_URL, response_class=PlainTextResponse)
-    async def probe_asset() -> PlainTextResponse:
+    @get(PROBE_URL)
+    async def probe_asset() -> Response[str]:
         try:
             source = probe_source(probe_js)
         except AssetMissing as error:  # pragma: no cover - fail-fast covers construction
             raise HTTPException(status_code=503, detail=str(error)) from error
-        return PlainTextResponse(source, media_type="text/javascript; charset=utf-8")
+        # Bare "text/javascript": Litestar appends the charset to every text/*
+        # media type, and saying it twice is a malformed header.
+        return Response(source, media_type="text/javascript")
 
-    @app.get(TOKENS_URL, response_class=PlainTextResponse)
-    async def tokens() -> PlainTextResponse:
-        return PlainTextResponse(tokens_css, media_type="text/css; charset=utf-8")
+    @get(TOKENS_URL)
+    async def tokens() -> Response[str]:
+        return Response(tokens_css, media_type="text/css")
 
-    return app
+    return Litestar(
+        route_handlers=[
+            create_beacon_router(store, turn_id=turn_id, health=health),
+            candidate,
+            fixture,
+            probe_asset,
+            tokens,
+        ],
+        # No schema: this server has exactly one client, ``probe.js``, and it
+        # reads none of it. ``openapi_config=None`` also takes /schema off the
+        # routing table, which keeps the preview's surface to what it serves.
+        openapi_config=None,
+        # An adapter does not get to reconfigure the process it is embedded in.
+        # Litestar's default logging config calls ``dictConfig`` on import of the
+        # app, which detaches every handler the host had already installed --
+        # including the one a test uses to prove that a refused append was
+        # *logged* and not merely counted. This module logs through
+        # ``logging.getLogger(__name__)`` like every other adapter; whoever runs
+        # the app decides where that goes.
+        logging_config=None,
+        exception_handlers={HTTPException: _detail_only},
+        state=State(
+            {
+                "candidates_dir": candidates_dir,
+                "contract": contract,
+                "store": store,
+                "turn_id": turn_id,
+                "dev": dev,
+                "ingest_health": health,
+            }
+        ),
+    )
 
 
 if __name__ == "__main__":
@@ -561,8 +609,7 @@ if __name__ == "__main__":
     import sys
     from datetime import UTC, datetime
 
-    import uvicorn
-
+    from ui_servo.adapters.granian_server import serve_forever
     from ui_servo.adapters.jsonl_store import JsonlEvidenceStore
 
     parser = argparse.ArgumentParser(
@@ -608,4 +655,4 @@ if __name__ == "__main__":
     print(f"turn     {args.turn}")
     print(f"evidence {evidence.path_for_turn(args.turn)}")
     print(f"preview  http://{args.host}:{args.port}/candidate/<name>  (dev={args.dev})")
-    uvicorn.run(application, host=args.host, port=args.port)
+    serve_forever(application, host=args.host, port=args.port)

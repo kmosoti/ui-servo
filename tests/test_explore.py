@@ -39,6 +39,7 @@ import pytest
 from ui_servo.adapters.jsonl_store import JsonlExemplarStore
 from ui_servo.control.explore import (
     FRAGMENT_FILENAME,
+    _spread_profile,
     admit,
     exemplar_name,
     frontier_report,
@@ -47,8 +48,7 @@ from ui_servo.control.explore import (
     record_pick,
     seed_cells,
 )
-from ui_servo.control.explore import _spread_profile
-from ui_servo.control.regulator import GateResult, REQUIRED_GATES, RegulatorReport
+from ui_servo.control.regulator import REQUIRED_GATES, GateResult, RegulatorReport
 from ui_servo.domain.contract import DirectionContract
 from ui_servo.domain.evidence import SpanEvidence
 from ui_servo.domain.variant import (

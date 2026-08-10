@@ -139,7 +139,7 @@ class FakeHttp:
     gets: list[str] = field(default_factory=list)
     client_kwargs: dict[str, Any] = field(default_factory=dict)
 
-    def __call__(self, **kwargs: Any) -> "FakeHttp":
+    def __call__(self, **kwargs: Any) -> FakeHttp:
         self.client_kwargs = kwargs
         return self
 
@@ -151,7 +151,7 @@ class FakeHttp:
             status_code=self.health_status, request=httpx.Request("GET", url), text="{}"
         )
 
-    def __enter__(self) -> "FakeHttp":
+    def __enter__(self) -> FakeHttp:
         return self
 
     def __exit__(self, *exc: object) -> bool:

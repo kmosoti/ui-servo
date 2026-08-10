@@ -24,23 +24,23 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 pytest.importorskip("PIL")
 
-from ui_servo.adapters.playwright_sensor import (  # noqa: E402
+from ui_servo.adapters.playwright_sensor import (
     AXE_SHA256,
     AXE_VERSION,
     PlaywrightSensor,
     SensorError,
     axe_source,
 )
-from ui_servo.domain.contract import DirectionContract  # noqa: E402
-from ui_servo.domain.evidence import Signal, spans_in_turn  # noqa: E402
-from ui_servo.domain.variant import (  # noqa: E402
+from ui_servo.domain.contract import DirectionContract
+from ui_servo.domain.evidence import Signal, spans_in_turn
+from ui_servo.domain.variant import (
     COLOR_BINS,
     StyleSample,
     StyleVector,
     blandness,
     build_anti_corpus,
 )
-from ui_servo.ports.sensor import (  # noqa: E402
+from ui_servo.ports.sensor import (
     FULL_PAGE_SCREENSHOT,
     ObservationCall,
     PixelDiff,

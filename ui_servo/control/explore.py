@@ -43,6 +43,7 @@ from html import escape
 from pathlib import Path
 from typing import Any, Final
 
+from ui_servo.control.regulator import RegulatorReport
 from ui_servo.domain.contract import DirectionContract
 from ui_servo.domain.variant import (
     AXIS_NAMES,
@@ -58,7 +59,6 @@ from ui_servo.domain.variant import (
     Variant,
     fitness_of,
 )
-from ui_servo.control.regulator import RegulatorReport
 from ui_servo.ports.store import Exemplar, ExemplarStorePort, FileName
 
 FRAGMENT_FILENAME: Final[FileName] = "fragment.html"

@@ -19,14 +19,47 @@ dependencies = [
 [dependency-groups]
 # pyyaml is used directly by tests/test_gauntlet_skill.py; it must not be relied
 # on as a transitive dependency of litestar.
-dev = ["pytest>=8.3", "pyyaml>=6.0"]
+dev = [
+    "pytest>=8.3",
+    "pyyaml>=6.0",
+    "ruff>=0.14",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
 markers = [
     "live: exercises the locally-authenticated model CLIs",
     "playwright: drives a real headless browser",
 ]
+filterwarnings = [
+    # starlette.testclient warns on every import once httpx.Client no longer
+    # matches its expected shape; fastapi.testclient re-exports it, so it fires
+    # on collection of every test module that imports TestClient. Scoped to the
+    # exact category + message so it goes silent (rather than masking something
+    # else) the day this dependency pair moves on or fastapi is dropped.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+# Explicit `select`, not `extend-select`: this ruff's actual zero-config
+# default is not the classic E4/E7/E9/F -- it is ~400 rules spanning most
+# plugins (verified with `ruff check --show-settings` against an empty
+# config). `extend-select` builds on top of that default, so using it here
+# would silently adopt the whole default set alongside these ten categories.
+# `select` replaces the default outright, which is what a deliberately
+# narrow adoption needs.
+select = ["E4", "E7", "E9", "F", "W", "I", "UP", "B", "BLE", "RUF100"]
+
+[tool.ruff.lint.isort]
+# Without this, isort splits a `from x import a, b as c` into two import
+# statements just because one name is aliased -- every future --fix on a
+# mixed plain/aliased import re-splits it the same way.
+combine-as-imports = true
 
 [build-system]
 requires = ["hatchling"]

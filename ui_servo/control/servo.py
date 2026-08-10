@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import blake2b
 from pathlib import Path
-from typing import Any, Final, Protocol
+from typing import Any, Final
 
 from ui_servo.control import explore
 from ui_servo.control.critique import Bar, Candidate, CritiquePanel, PanelRound
@@ -75,7 +75,6 @@ from ui_servo.domain.policy import (
 )
 from ui_servo.domain.variant import (
     STILL,
-    build_anti_corpus,
     EliteArchive,
     MotionEvidence,
     PartName,
@@ -83,6 +82,7 @@ from ui_servo.domain.variant import (
     StyleVector,
     Variant,
     VariantId,
+    build_anti_corpus,
 )
 from ui_servo.ports.judge import JudgePort, JudgeRequest, JudgeResponse
 from ui_servo.ports.sanitizer import SanitizerPort

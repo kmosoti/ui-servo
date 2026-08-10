@@ -16,10 +16,17 @@ from __future__ import annotations
 
 import pytest
 
-# Fixtures that launch a real browser. Anything downstream of one is covered
-# too — `item.fixturenames` carries the whole dependency closure, not just the
-# fixtures named in the test signature.
-BROWSER_FIXTURES = frozenset({"sensor"})
+# Fixtures that reach for something a plain run cannot supply. Anything
+# downstream of one is covered too — `item.fixturenames` carries the whole
+# dependency closure, not just the fixtures named in the test signature.
+#
+#   sensor     — drives Chromium through the playwright sensor adapter
+#   browser    — launches Chromium directly (the island suite)
+#   base_url   — cargo-builds and boots a real dev server for the island suite
+#
+# `base_url` earns its place for the second reason as much as the first: a job
+# scoped to Python has no business paying for a cold Rust compile.
+BROWSER_FIXTURES = frozenset({"sensor", "browser", "base_url"})
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

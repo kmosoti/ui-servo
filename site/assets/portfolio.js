@@ -81,6 +81,12 @@
     if (btn) { btn.textContent = 'motion ' + (reduced ? 'off' : 'on'); btn.style.color = reduced ? DIM : EMBER; }
     $$('.pf-caret').forEach(function (el) { el.style.animation = reduced ? 'none' : 'km-blink 1s step-end infinite'; });
     $$('[data-token]').forEach(function (el) { el.style.transition = reduced ? 'none' : 'transform .4s cubic-bezier(.4,0,.2,1)'; });
+    // batch/canvas-energy, 2026-08-09: toggling ON needs no help (schedule()
+    // keeps requesting frames while !reduced); toggling OFF is what would
+    // otherwise strand the canvases on whatever half-drawn frame was on
+    // screen the instant the switch flipped, so wake() owes the loop the one
+    // settled frame reduced mode renders and idles after.
+    wake();
   }
 
   /* ---------- header: motion toggle, résumé menu, dir toggle ------------ */
@@ -401,34 +407,63 @@
   }
 
   var scenes = [makeWarp($('#pf-canvas-l')), makeWarp($('#pf-canvas-r')), makeBlackhole($('#pf-bh'))].filter(Boolean);
+
+  // Idle-CPU orchestration (batch/canvas-energy, 2026-08-09): the rAF loop
+  // below used to run forever at display rate — a backgrounded tab kept
+  // painting off-screen, and reduced motion re-rasterized an identical frame
+  // every tick instead of drawing it once and stopping. Scenes still decide
+  // WHAT a frame looks like (untouched); this only decides WHEN one runs, so
+  // the one frame reduced mode shows is pixel-identical to before.
   var mx = -9999, my = -9999;
-  window.addEventListener('mousemove', function (e) { mx = e.clientX; my = e.clientY; });
+  window.addEventListener('mousemove', function (e) { mx = e.clientX; my = e.clientY; }, { passive: true });
+
+  var rafId = null, needsFrame = true;          // one frame owed: boot, toggle, resize, tab return
+  function wake() { needsFrame = true; if (rafId === null && !document.hidden) schedule(); }
+
   function applyCanvasVisibility() {
     var show = window.innerWidth >= 1280 ? 'block' : 'none';
     $$('.pf-canvas').forEach(function (el) { el.style.display = show; });
   }
+  var resizeTimer = null;
   window.addEventListener('resize', function () {
-    scenes.forEach(function (sc) { sc.size(); });
-    applyCanvasVisibility();
+    applyCanvasVisibility();                     // immediate: two style writes, keeps the 1280px flip live
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {       // the re-seed is the expensive half; draw() self-heals any
+      scenes.forEach(function (sc) { sc.size(); }); // frame rendered in between, and reduced mode renders its
+      wake();                                    // one frame after settle.
+    }, 150);
   });
   applyCanvasVisibility();
 
   var frames = 0, fpsMark = performance.now(), last = performance.now();
-  (function loop() {
-    var raf = function (now) {
-      frames++;
-      if (now - fpsMark >= 1000) { fps = Math.round(frames * 1000 / (now - fpsMark)); frames = 0; fpsMark = now; }
-      var dt = Math.min((now - last) / 1000, 0.1);
-      last = now;
-      scenes.forEach(function (sc) { sc.draw(dt, reduced, mx, my); });
-      requestAnimationFrame(raf);
-    };
-    requestAnimationFrame(raf);
-  })();
+  function raf(now) {
+    rafId = null;
+    frames++;
+    if (now - fpsMark >= 1000) { fps = Math.round(frames * 1000 / (now - fpsMark)); frames = 0; fpsMark = now; }
+    var dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    scenes.forEach(function (sc) { sc.draw(dt, reduced, mx, my); });
+    needsFrame = false;
+    schedule();
+  }
+  function schedule() {
+    if (document.hidden) return;                 // resumed by visibilitychange
+    if (reduced && !needsFrame) return;          // still frame delivered; idle at zero rAF
+    rafId = requestAnimationFrame(raf);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
+    else { last = performance.now(); fpsMark = last; frames = 0; wake(); }
+  });
+  schedule();
 
   /* ---------- live metrics (home) ---------------------------------------- */
 
   function readMetrics() {
+    // batch/canvas-energy, 2026-08-09: a hidden tab still ticks this every
+    // second (setInterval keeps firing in the background); the DOM walk for
+    // node-count is the part worth skipping, so bail before doing any of it.
+    if (document.hidden) return;
     if (!$('#pf-m-up')) return;
     var ms = function (v) { return (v == null || !isFinite(v) || v < 0) ? '—' : Math.round(v) + 'ms'; };
     var nav = null;

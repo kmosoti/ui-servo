@@ -14,6 +14,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
+use std::net::{IpAddr, SocketAddr};
 use tower_http::compression::predicate::NotForContentType;
 use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tower_http::trace::TraceLayer;
@@ -28,6 +29,14 @@ pub const DEFAULT_PORT: u16 = 8080;
 /// process over `127.0.0.1`, so the process itself never needs to be
 /// reachable from outside the box. Exposing it directly is a deployment
 /// choice, made by setting `UI_SERVO_HOST=0.0.0.0` — configuration, not code.
+///
+/// Before this existed, "unreachable off-box" was true by construction: the
+/// bind address was a `127.0.0.1` literal, independent of any runtime input.
+/// Now it depends on `UI_SERVO_HOST` being unset or explicitly loopback, so
+/// [`run`] logs a `tracing::warn!` whenever the resolved address is not
+/// loopback — a stray `UI_SERVO_HOST=0.0.0.0` inherited from a parent shell
+/// or a copy-pasted systemd unit should announce itself in the log rather
+/// than silently expose the process.
 pub const DEFAULT_HOST: &str = "127.0.0.1";
 
 /// Configure logging, read the environment, bind, serve until a signal.
@@ -56,11 +65,15 @@ pub async fn run() -> Result<(), StartupError> {
         tracing::warn!("UI_SERVO_DEV=1 but no probe.js found; pages will request it and 404");
     }
 
-    let addr = format!("{host}:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr)
+    let addr = SocketAddr::new(host, port);
+    if !host.is_loopback() {
+        tracing::warn!(%addr, "UI_SERVO_HOST is not loopback; this process is directly \
+                                reachable at this address with no reverse proxy implied");
+    }
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|source| StartupError::Bind {
-            addr: addr.clone(),
+            addr: addr.to_string(),
             source,
         })?;
 
@@ -93,20 +106,43 @@ pub fn app(state: AppState) -> Router {
     // `routes::ROOT_FILE_ROUTES` so the source scan knows it is deliberate.
     router = router.route("/sw.js", get(service_worker));
     router
-        .layer(TraceLayer::new_for_http())
+        // `Router::layer` makes the most-recently-added layer outermost
+        // (`Route::layer` wraps the existing service: `Route::new(layer.layer(self))`)
+        // — the opposite of `ServiceBuilder`, where the first-added layer is
+        // outermost. That asymmetry is a trap here specifically: tower-http's own
+        // README shows `TraceLayer` before `CompressionLayer` under
+        // `ServiceBuilder`, where that order makes Trace outermost. Copied
+        // verbatim under `Router::layer` it makes Trace *innermost* instead, so
+        // its `on_response` (and thus recorded latency/headers) fires on the
+        // pre-compression response. Compression is added first (innermost, next
+        // to the handler) and Trace last (outermost) so Trace reports what the
+        // client actually received.
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
 /// Which responses are worth spending CPU to gzip/brotli-compress.
 ///
 /// Starts from tower-http's [`DefaultPredicate`] — it already skips tiny
-/// bodies, gRPC, images and SSE — and excludes two more types that are
-/// already compressed on disk, where re-compressing buys nothing but CPU:
+/// bodies (under 32 bytes), gRPC, and SSE, and skips most images but carves
+/// out an explicit exception for `image/svg+xml` (so this site's favicon and
+/// any inline SVG are compressed as the text they are, not treated as an
+/// opaque image) — and excludes two more types that are already compressed
+/// on disk, where re-compressing buys nothing but CPU:
 /// `font/woff2` (already a compressed container format) and
 /// `application/pdf` (the résumé, already compressed internally).
 /// `application/wasm` deliberately stays compressible: unlike those two it is
 /// not pre-compressed, and gzip/brotli typically shave ~40-50% off it.
+///
+/// tower-http's `CompressionLayer` appends `Vary: Accept-Encoding` itself —
+/// see `tower_http::compression::future::ResponseFuture::poll` in the
+/// vendored source — on every response this predicate matches, independent
+/// of whether the request asked for a compressed encoding, so a shared
+/// cache in front of this server cannot conflate compressed and
+/// uncompressed bytes for the same URL. No separate `Vary` layer is added;
+/// `compressible_assets_carry_vary_accept_encoding` below asserts this
+/// stays true.
 fn compression_predicate() -> impl Predicate {
     DefaultPredicate::new()
         .and(NotForContentType::const_new("font/woff2"))
@@ -248,67 +284,93 @@ async fn static_asset(
     let body = tokio::fs::read(&resolved)
         .await
         .map_err(|_| RouteError::UnknownFragment(decoded.clone()))?;
-    let mut response = (
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static(content_type_of(&resolved)),
-        )],
-        body,
-    )
-        .into_response();
-    if let Some(cache_control) = cache_control_of(&resolved) {
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache_control));
-    }
-    Ok(response)
+    let (content_type, cache_control) = asset_headers_of(&resolved);
+    // Two arms of the same array-of-tuples idiom `probe_js` uses below, rather
+    // than one array plus a follow-up `headers_mut().insert()`: the array form
+    // sets a header (`HeaderMap::insert`, replacing anything already there),
+    // where `AppendHeaders` — tried first — instead appends, which left a
+    // stray default `application/octet-stream` `Content-Type` (set by
+    // `Vec<u8>`'s own `IntoResponse` impl) sitting ahead of the real one.
+    Ok(match cache_control {
+        Some(cache_control) => (
+            [
+                (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static(cache_control),
+                ),
+            ],
+            body,
+        )
+            .into_response(),
+        None => (
+            [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+            body,
+        )
+            .into_response(),
+    })
 }
 
-/// The `Content-Type` for one asset, by extension.
+/// The `Content-Type` and `Cache-Control` for one asset, keyed by extension
+/// in a single table so the two headers cannot drift out of step with each
+/// other. They used to be two independent `match` expressions over the same
+/// extension; that compiled fine even when only one of them learned about a
+/// new extension, which is worse than no cross-check at all — it makes the
+/// two look reconciled without the compiler ever verifying it.
 ///
-/// Shared with the exporter, which has no server to ask: GitHub Pages picks the
-/// type from the same extension, and this is the list that says which
-/// extensions the site expects to ship at all.
-pub fn content_type_of(path: &std::path::Path) -> &'static str {
+/// The content-type half is shared with the exporter's reasoning even though
+/// the exporter does not call this directly: GitHub Pages picks a content
+/// type from the same extension, so this table is also the list of
+/// extensions the site expects to ship at all. Extension matching is
+/// case-sensitive, coupling this table to `compression_predicate`'s exact
+/// `"application/pdf"`/`"font/woff2"` strings: an uppercase `Resume.PDF`
+/// would fall through to `application/octet-stream` and the compression
+/// exclusion would no longer recognise it as pre-compressed. No such asset
+/// exists in the tree today; adding one is a reviewed act.
+///
+/// **Where `Cache-Control` actually lands.** This governs only the asset
+/// extensions requested through [`static_asset`] — dev/local `cargo run`
+/// today, the droplet once the server itself is the origin behind a reverse
+/// proxy. It does not cover `RouteKind::Page`, the fragment handlers, or
+/// `promoted_fragment`, none of which set a `Cache-Control` at all; on the
+/// droplet those still go out with no explicit directive. Extending this
+/// policy to pages/fragments is droplet-roadmap work, not scoped here
+/// (noted 2026-08-09).
+///
+/// **Why nothing here is `immutable`, and why `woff2` is a week rather than
+/// a year.** `immutable` is a promise that the bytes at a URL never change;
+/// it only holds for content-addressed filenames (a hash baked into the
+/// name), so a font re-subset or re-hinted under an unchanged name would be
+/// invisible to a returning visitor until the cache expired — for up to a
+/// year, with revalidation refused even on an explicit reload. None of this
+/// repo's filenames are content-hashed yet (`jetbrains-mono-400-latin.woff2`,
+/// `portfolio.js`, `portfolio.css`, …); that hashing is the real fix and is
+/// out of scope for this unit. Until then: `woff2` gets a week — long enough
+/// to spare nearly every repeat visit, short enough to bound a same-name
+/// font change to days rather than a year. `css`/`js`/`json`/`wasm` get five
+/// minutes rather than an hour: they are executed or parsed against the page
+/// that referenced them, so the window in which a returning visitor can run
+/// a stale script against freshly deployed markup is kept deliberately
+/// short. `svg`/`png`/`pdf` are inert regardless of staleness and get an
+/// hour.
+pub fn asset_headers_of(path: &std::path::Path) -> (&'static str, Option<&'static str>) {
     match path.extension().and_then(|ext| ext.to_str()) {
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") => "text/javascript; charset=utf-8",
-        Some("json") => "application/json",
-        Some("webmanifest") => "application/manifest+json",
-        Some("wasm") => "application/wasm",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
+        Some("css") => ("text/css; charset=utf-8", Some("public, max-age=300")),
+        Some("js") => (
+            "text/javascript; charset=utf-8",
+            Some("public, max-age=300"),
+        ),
+        Some("json") => ("application/json", Some("public, max-age=300")),
+        Some("webmanifest") => ("application/manifest+json", Some("public, max-age=300")),
+        Some("wasm") => ("application/wasm", Some("public, max-age=300")),
+        Some("svg") => ("image/svg+xml", Some("public, max-age=3600")),
+        Some("png") => ("image/png", Some("public, max-age=3600")),
         // Without this the résumé is served as octet-stream, which every
         // browser turns into a download prompt rather than a document.
-        Some("pdf") => "application/pdf",
-        Some("woff2") => "font/woff2",
-        Some("html") => "text/html; charset=utf-8",
-        _ => "application/octet-stream",
-    }
-}
-
-/// The `Cache-Control` for one asset, keyed by the same extension match as
-/// [`content_type_of`] so the two lists cannot quietly drift apart.
-///
-/// **Where this header actually lands.** Production today is GitHub Pages,
-/// which sets its own `Cache-Control` regardless of anything this function
-/// returns — this layer has no effect there. It governs dev/local `cargo run`
-/// now, and will govern the droplet once the server itself is the origin
-/// behind a reverse proxy.
-///
-/// `woff2` gets a year and `immutable`: font files are requested once per
-/// visitor per browser profile and never need revalidation mid-visit.
-/// `html` gets `no-cache` rather than a max-age, so a revisit always
-/// revalidates rather than risking a stale shell. Everything else gets an
-/// hour — long enough to spare a repeat visit within a session, short enough
-/// that a redeploy is not stuck behind a stale cache for long.
-pub fn cache_control_of(path: &std::path::Path) -> Option<&'static str> {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("woff2") => Some("public, max-age=31536000, immutable"),
-        Some("css") | Some("js") | Some("json") | Some("wasm") | Some("svg") | Some("png")
-        | Some("pdf") => Some("public, max-age=3600"),
-        Some("html") => Some("no-cache"),
-        _ => None,
+        Some("pdf") => ("application/pdf", Some("public, max-age=3600")),
+        Some("woff2") => ("font/woff2", Some("public, max-age=604800")),
+        Some("html") => ("text/html; charset=utf-8", None),
+        _ => ("application/octet-stream", None),
     }
 }
 
@@ -407,31 +469,62 @@ fn port_from_env() -> Result<u16, StartupError> {
 
 /// Resolve the bind interface from `UI_SERVO_HOST`, defaulting to loopback.
 ///
-/// An unset variable is fine (that is the common case); a variable set to the
-/// empty string is not, because `format!("{host}:{port}")` would silently
-/// produce `":{port}"` — a socket address libc happens to accept as "any
-/// interface", which is exactly the exposure this crate should never pick
-/// silently. That case is rejected here rather than left for the bind
-/// syscall to explain.
-///
-/// This reuses [`StartupError::Bind`] rather than adding a dedicated variant:
-/// `StartupError` lives in `error.rs`, outside this unit's change surface, and
-/// `Bind`'s `{addr}: {source}` shape already reads clearly for an address
-/// problem caught before the bind attempt as well as during one.
-fn host_from_env() -> Result<String, StartupError> {
+/// Parses as an [`IpAddr`] rather than accepting any non-empty string and
+/// formatting it into `"{host}:{port}"` for [`tokio::net::TcpListener::bind`]
+/// to interpret later. That string-then-`ToSocketAddrs` path is not merely
+/// inelegant, it is the wrong tool: measured directly against this OS
+/// resolver, `UI_SERVO_HOST=example.com` binds — silently resolving a
+/// *bind interface* through live DNS to whatever address the query returns
+/// that moment — and a typo (`UI_SERVO_HOST=not-a-real-host`) does not fail
+/// fast, it blocks for the resolver's full timeout (~10s, measured) before
+/// startup can report anything. (IPv6 literals such as `::1` or `fe80::1`,
+/// despite lacking bracket notation, happen to bind correctly through this
+/// same path today — `ToSocketAddrs`'s string impl splits at the last `:`
+/// and hands the host half to the resolver as a literal, not as a
+/// DNS-vs-bracketing bug. So this is not an IPv6 fix.) Parsing as an
+/// `IpAddr` up front and building a [`SocketAddr`] directly (see [`run`])
+/// removes DNS resolution from the bind path entirely — this variable names
+/// a literal address, never a hostname — and turns both the hostname case
+/// and a typo into an immediate, precise failure. Whatever fails to parse —
+/// empty, a hostname, a stray leading space from a pasted heredoc — is
+/// rejected here, loudly, the same posture `UI_SERVO_PORT` already takes
+/// toward unparseable input.
+fn host_from_env() -> Result<IpAddr, StartupError> {
     match std::env::var("UI_SERVO_HOST") {
-        Err(_) => Ok(DEFAULT_HOST.to_owned()),
-        Ok(raw) if raw.is_empty() => Err(StartupError::Bind {
-            addr: "UI_SERVO_HOST=\"\"".to_owned(),
-            source: std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "UI_SERVO_HOST is set but empty; unset it to use the default \
-                     ({DEFAULT_HOST}), or set it to a real host"
-                ),
-            ),
+        Ok(raw) => host_from_raw(Some(&raw)),
+        Err(std::env::VarError::NotPresent) => host_from_raw(None),
+        // Treated as loud, not as "unset": a non-UTF-8 value is exactly the
+        // same class of misconfiguration as an empty one, and silently
+        // falling back to the default here would be the one case in this
+        // function that doesn't fail loudly.
+        Err(std::env::VarError::NotUnicode(raw)) => Err(StartupError::BadHost(format!(
+            "UI_SERVO_HOST is set to {raw:?}, which is not valid UTF-8; set it to a plain \
+             IP address such as 127.0.0.1, 0.0.0.0, or ::1"
+        ))),
+    }
+}
+
+/// The parsing and validation behind [`host_from_env`], pulled out as a pure
+/// function so it can be unit-tested against plain values instead of the
+/// process environment. `std::env::set_var` is unsound to call while any
+/// other thread might read the environment concurrently, and this crate's
+/// own test suite does exactly that elsewhere (`state.rs`'s symlink and
+/// tampered-promotion tests, and `fragments::promoted`'s `temp()` helper,
+/// all call `std::env::temp_dir()`, which reads `TMPDIR`) — so a test that
+/// wrapped `host_from_env` in `unsafe { std::env::set_var(..) }` would race
+/// `cargo test`'s default parallelism, not merely risk key collisions with
+/// another test.
+fn host_from_raw(raw: Option<&str>) -> Result<IpAddr, StartupError> {
+    match raw {
+        None => Ok(DEFAULT_HOST
+            .parse()
+            .expect("DEFAULT_HOST is a valid IP literal")),
+        Some(raw) => raw.parse().map_err(|_| {
+            StartupError::BadHost(format!(
+                "UI_SERVO_HOST={raw:?} is not an IP address; set it to something like \
+                 127.0.0.1, 0.0.0.0, or ::1, or unset it to use the default ({DEFAULT_HOST})"
+            ))
         }),
-        Ok(raw) => Ok(raw),
     }
 }
 
@@ -487,17 +580,27 @@ mod tests {
     }
 
     /// Drive the real routing table through `oneshot` — no socket, no port, but
-    /// the same `Router` `main` serves.
-    async fn response(path: &str, dev: bool) -> Response {
+    /// the same `Router` `main` serves. The shared body behind [`response`]
+    /// and [`response_with_headers`], so a request-header case is one call
+    /// with a non-empty slice rather than a second copy of the request-building
+    /// boilerplate.
+    async fn response_with_headers(
+        path: &str,
+        dev: bool,
+        headers: &[(header::HeaderName, &str)],
+    ) -> Response {
+        let mut builder = Request::builder().uri(path);
+        for (name, value) in headers {
+            builder = builder.header(name, *value);
+        }
         app(AppState::for_tests(dev))
-            .oneshot(
-                Request::builder()
-                    .uri(path)
-                    .body(Body::empty())
-                    .expect("valid request"),
-            )
+            .oneshot(builder.body(Body::empty()).expect("valid request"))
             .await
             .expect("router is infallible")
+    }
+
+    async fn response(path: &str, dev: bool) -> Response {
+        response_with_headers(path, dev, &[]).await
     }
 
     async fn get(path: &str, dev: bool) -> (StatusCode, String) {
@@ -520,25 +623,6 @@ mod tests {
             .unwrap_or_default()
             .to_owned();
         (response.status(), value)
-    }
-
-    /// Like [`response`], but with a request header set — for asserting
-    /// things that depend on what the client sent, like `Accept-Encoding`.
-    async fn response_with_request_header(
-        path: &str,
-        name: header::HeaderName,
-        value: &str,
-    ) -> Response {
-        app(AppState::for_tests(false))
-            .oneshot(
-                Request::builder()
-                    .uri(path)
-                    .header(name, value)
-                    .body(Body::empty())
-                    .expect("valid request"),
-            )
-            .await
-            .expect("router is infallible")
     }
 
     #[tokio::test]
@@ -828,7 +912,7 @@ mod tests {
     }
 
     /// `Cache-Control` on committed static assets, keyed by extension per
-    /// [`cache_control_of`], exercised through the real router rather than by
+    /// [`asset_headers_of`], exercised through the real router rather than by
     /// calling the function directly — this is what a request actually gets
     /// back.
     #[tokio::test]
@@ -836,10 +920,10 @@ mod tests {
         for (path, expected) in [
             (
                 "/assets/fonts/jetbrains-mono-400-latin.woff2",
-                "public, max-age=31536000, immutable",
+                "public, max-age=604800",
             ),
-            ("/assets/portfolio.css", "public, max-age=3600"),
-            ("/assets/portfolio.js", "public, max-age=3600"),
+            ("/assets/portfolio.css", "public, max-age=300"),
+            ("/assets/portfolio.js", "public, max-age=300"),
         ] {
             let (status, cache_control) = header_of(path, header::CACHE_CONTROL).await;
             assert_eq!(status, StatusCode::OK, "{path}");
@@ -851,26 +935,37 @@ mod tests {
     /// serve — pages render straight from `RouteKind::Page`, never through
     /// `static_asset` — so unlike the extensions above, the `html` mapping
     /// has no live route to exercise through `oneshot`. Asserted directly
-    /// against the table it shares with `content_type_of` instead, alongside
-    /// every other extension `static_asset` recognises.
+    /// against the table instead, alongside every other extension
+    /// `static_asset` recognises.
     #[test]
-    fn cache_control_of_maps_every_known_extension() {
-        assert_eq!(
-            cache_control_of(std::path::Path::new("a.woff2")),
-            Some("public, max-age=31536000, immutable")
-        );
-        for ext in ["css", "js", "json", "wasm", "svg", "png", "pdf"] {
+    fn asset_headers_of_maps_every_known_extension() {
+        let cases: &[(&str, &str, Option<&str>)] = &[
+            (
+                "a.css",
+                "text/css; charset=utf-8",
+                Some("public, max-age=300"),
+            ),
+            (
+                "a.js",
+                "text/javascript; charset=utf-8",
+                Some("public, max-age=300"),
+            ),
+            ("a.json", "application/json", Some("public, max-age=300")),
+            ("a.wasm", "application/wasm", Some("public, max-age=300")),
+            ("a.svg", "image/svg+xml", Some("public, max-age=3600")),
+            ("a.png", "image/png", Some("public, max-age=3600")),
+            ("a.pdf", "application/pdf", Some("public, max-age=3600")),
+            ("a.woff2", "font/woff2", Some("public, max-age=604800")),
+            ("index.html", "text/html; charset=utf-8", None),
+            ("a.unknown", "application/octet-stream", None),
+        ];
+        for (name, content_type, cache_control) in cases {
             assert_eq!(
-                cache_control_of(std::path::Path::new(&format!("a.{ext}"))),
-                Some("public, max-age=3600"),
-                "{ext}"
+                asset_headers_of(std::path::Path::new(name)),
+                (*content_type, *cache_control),
+                "{name}"
             );
         }
-        assert_eq!(
-            cache_control_of(std::path::Path::new("index.html")),
-            Some("no-cache")
-        );
-        assert_eq!(cache_control_of(std::path::Path::new("a.unknown")), None);
     }
 
     /// `portfolio.js` is well above `DefaultPredicate`'s 32-byte floor and is
@@ -878,9 +973,12 @@ mod tests {
     /// — this is the real ~40-50% win the compression layer exists for.
     #[tokio::test]
     async fn compressible_assets_gzip_for_a_client_that_accepts_it() {
-        let response =
-            response_with_request_header("/assets/portfolio.js", header::ACCEPT_ENCODING, "gzip")
-                .await;
+        let response = response_with_headers(
+            "/assets/portfolio.js",
+            false,
+            &[(header::ACCEPT_ENCODING, "gzip")],
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -897,42 +995,99 @@ mod tests {
     /// client with no `Content-Encoding` even when the client offers gzip.
     #[tokio::test]
     async fn woff2_is_excluded_from_compression() {
-        let response = response_with_request_header(
+        let response = response_with_headers(
             "/assets/fonts/jetbrains-mono-400-latin.woff2",
-            header::ACCEPT_ENCODING,
-            "gzip",
+            false,
+            &[(header::ACCEPT_ENCODING, "gzip")],
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert!(
-            response
-                .headers()
-                .get(header::CONTENT_ENCODING)
-                .is_none(),
+            response.headers().get(header::CONTENT_ENCODING).is_none(),
             "woff2 is already compressed; it should be served as-is"
         );
     }
 
-    /// `UI_SERVO_HOST` is not touched by any other test in this crate, so
-    /// exercising all three cases in one test (rather than three tests that
-    /// could interleave on the same process-global environment variable)
-    /// keeps this deterministic under `cargo test`'s default parallelism.
+    /// tower-http's `CompressionLayer` sets `Vary: Accept-Encoding` on its own
+    /// for any response the predicate matches (see the doc comment on
+    /// [`compression_predicate`]) — asserted directly, and without setting
+    /// `Accept-Encoding` on the request, because the header is meant to be
+    /// present independent of what this particular client asked for: it is
+    /// what tells a shared cache in front of this server that the response
+    /// varies by encoding at all.
+    #[tokio::test]
+    async fn compressible_assets_carry_vary_accept_encoding() {
+        let (status, vary) = header_of("/assets/portfolio.js", header::VARY).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(vary, "accept-encoding");
+    }
+
+    /// woff2 is excluded from compression, so its response never varies by
+    /// encoding — no `Vary` should be added for it (tower-http only appends
+    /// one when its predicate matches).
+    #[tokio::test]
+    async fn excluded_assets_carry_no_vary() {
+        let (status, vary) =
+            header_of("/assets/fonts/jetbrains-mono-400-latin.woff2", header::VARY).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(vary, "");
+    }
+
+    /// Pure parsing, no environment access — see the doc comment on
+    /// [`host_from_raw`] for why a test that mutated `UI_SERVO_HOST` via
+    /// `unsafe { std::env::set_var }` would be unsound under `cargo test`'s
+    /// default parallelism rather than merely racy in principle.
     #[test]
-    fn host_from_env_reads_and_validates_ui_servo_host() {
-        // SAFETY: single-threaded within this test, and no other test in the
-        // crate reads or writes UI_SERVO_HOST.
-        unsafe { std::env::remove_var("UI_SERVO_HOST") };
-        assert_eq!(host_from_env().unwrap(), DEFAULT_HOST);
-
-        unsafe { std::env::set_var("UI_SERVO_HOST", "0.0.0.0") };
-        assert_eq!(host_from_env().unwrap(), "0.0.0.0");
-
-        unsafe { std::env::set_var("UI_SERVO_HOST", "") };
-        assert!(
-            matches!(host_from_env(), Err(StartupError::Bind { .. })),
-            "an empty UI_SERVO_HOST should be rejected before a bind is attempted"
+    fn host_from_raw_reads_and_validates_ui_servo_host() {
+        let default: IpAddr = DEFAULT_HOST.parse().unwrap();
+        assert_eq!(
+            host_from_raw(None).unwrap(),
+            default,
+            "unset defaults to loopback"
         );
 
-        unsafe { std::env::remove_var("UI_SERVO_HOST") };
+        let v4: IpAddr = "203.0.113.7".parse().unwrap();
+        assert_eq!(
+            host_from_raw(Some("203.0.113.7")).unwrap(),
+            v4,
+            "explicit v4"
+        );
+
+        let v6: IpAddr = "::1".parse().unwrap();
+        assert_eq!(
+            host_from_raw(Some("::1")).unwrap(),
+            v6,
+            "IPv6 loopback, unbracketed"
+        );
+
+        assert!(
+            matches!(host_from_raw(Some("")), Err(StartupError::BadHost(_))),
+            "empty is rejected before a bind is attempted"
+        );
+
+        assert!(
+            matches!(
+                host_from_raw(Some("not-an-ip")),
+                Err(StartupError::BadHost(_))
+            ),
+            "a bare hostname is not an IP address"
+        );
+
+        // The concrete bug this function exists to prevent, not a
+        // hypothetical: measured directly against `TcpListener::bind` before
+        // this refactor, `UI_SERVO_HOST=example.com` bound successfully by
+        // resolving through live DNS to whatever address the query returned
+        // at that moment, and `UI_SERVO_HOST=not-a-real-hostname-xyz123`
+        // hung for the OS resolver's full timeout (~10s) before failing.
+        // `IpAddr::from_str` performs no resolution, so both are now
+        // instant, precise rejections.
+        assert!(
+            matches!(
+                host_from_raw(Some("example.com")),
+                Err(StartupError::BadHost(_))
+            ),
+            "a resolvable hostname must still be rejected: this variable names \
+             a literal bind address, never a DNS lookup"
+        );
     }
 }

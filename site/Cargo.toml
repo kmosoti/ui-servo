@@ -60,4 +60,9 @@ debug = 1
 # fraction of the time.
 [profile.release]
 lto = "thin"
-strip = true
+# "debuginfo", not `true`: this binary runs as a long-lived server on a
+# droplet, not a download artifact, so binary size barely matters but a
+# readable backtrace from a live panic does — stripping everything would
+# turn `tracing`'s panic log into bare addresses and turn "read the log"
+# into "rebuild and reproduce."
+strip = "debuginfo"

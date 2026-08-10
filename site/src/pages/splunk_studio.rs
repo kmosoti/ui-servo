@@ -14,6 +14,17 @@ fn pack_chip(text: &str) -> Markup {
     }
 }
 
+/// One readout in the pipeline rig's stat strip. Mirrors the counters a real
+/// collector exposes, so the generated dashboard has something to be about.
+fn stat_cell(id: &str, key: &str, initial: &str) -> Markup {
+    html! {
+        div style="background:#0c0e11; padding:8px 12px;" {
+            span style=(format!("display:block; font-family:{MONO}; font-size:10px; letter-spacing:.08em; color:#6e747b;")) { (key) }
+            span id=(id) style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; color:#ece7dd;" { (initial) }
+        }
+    }
+}
+
 fn fault_checkbox(key: &str, label: &str) -> Markup {
     html! {
         label style="display:flex; align-items:center; gap:8px; font-size:13.5px; color:#9aa0a7; cursor:pointer;" {
@@ -119,7 +130,59 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
 
                 (log_panel("pf-sp-log", "160px"))
 
-                p style="margin:0; max-width:720px; font-size:15px; color:#6e747b; text-wrap:pretty;" { "The differential stage exists because a shape can be perfectly valid Python and still be a shape Splunk's own schema doesn't recognize yet — that's the whole reason a second, independent validator sits in the pipeline instead of trusting the typed model alone." }
+                p style="margin:0 0 64px; max-width:720px; font-size:15px; color:#6e747b; text-wrap:pretty;" { "The differential stage exists because a shape can be perfectly valid Python and still be a shape Splunk's own schema doesn't recognize yet — that's the whole reason a second, independent validator sits in the pipeline instead of trusting the typed model alone." }
+
+                h2 style="margin:0 0 12px; font-size:22px; font-weight:700; letter-spacing:-.02em;" { "One panel is a demo. A dashboard is the point." }
+                p style="margin:0 0 22px; max-width:720px; font-size:16px; color:#9aa0a7; text-wrap:pretty;" {
+                    "Below is a working telemetry pipeline — Poisson arrivals into a bounded buffer, a single processing stage, four storage tiers. Drive it however you like, then compile a Dashboard Studio dashboard "
+                    span style=(format!("font-family:{MONO}; color:#ff7a45;")) { "from what it actually did" }
+                    ". Panels, thresholds and layout come out of the observed run, not a template."
+                }
+
+                div style="border:1px solid #24282e; border-radius:8px; background:#0c0e11; margin-bottom:16px; overflow:hidden;" {
+                    div style="display:flex; flex-wrap:wrap; gap:18px; align-items:center; padding:12px 16px; border-bottom:1px solid #24282e;" {
+                        label style=(format!("display:flex; align-items:center; gap:9px; font-family:{MONO}; font-size:10.5px; letter-spacing:.08em; color:#6e747b; flex:1 1 220px;")) {
+                            "ARRIVAL λ"
+                            input type="range" id="pf-spd-lam" min="4" max="70" value="26" step="1"
+                                  style="flex:1; accent-color:#ff7a45; min-width:110px;";
+                            span id="pf-spd-lamv" style="color:#ece7dd; font-variant-numeric:tabular-nums;" { "26/s" }
+                        }
+                        (run_btn("pf-spd-run", "generate dashboard", ""))
+                    }
+                    canvas id="pf-spd-canvas" style="display:block; width:100%; height:270px;"
+                           aria-label="Live telemetry pipeline: Poisson arrivals into an agent and bounded buffer, a single processing stage, then hot, warm, cold and frozen storage tiers." {}
+                    div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(104px,1fr)); gap:1px; background:#24282e; border-top:1px solid #24282e;" {
+                        (stat_cell("pf-spd-rho", "ρ = λ/μ", "0.65"))
+                        (stat_cell("pf-spd-buf", "BUFFER", "0/120"))
+                        (stat_cell("pf-spd-drop", "DROPPED", "0"))
+                        (stat_cell("pf-spd-peak", "PEAK ρ", "0.65"))
+                        (stat_cell("pf-spd-stored", "STORED", "0"))
+                    }
+                }
+
+                div id="pf-spd-wrap" style="position:relative; border:1px solid #24282e; border-radius:8px; background:#0c0e11; padding:26px 20px 22px; margin-bottom:16px;" {
+                    div style="display:flex; align-items:stretch; gap:8px; flex-wrap:wrap;" {
+                        (flow_node("spd", "generate", None, "generate", "from telemetry", None, "#6e747b"))
+                        (flow_arrow())
+                        (flow_node("spd", "valPy", None, "validate", "Pydantic", None, "#6e747b"))
+                        (flow_arrow())
+                        (flow_node("spd", "valNpm", None, "validate", "Splunk NPM", None, "#6e747b"))
+                        (flow_arrow())
+                        (flow_node("spd", "optimize", None, "optimize", "normalize output", None, "#6e747b"))
+                        (flow_arrow())
+                        (flow_node("spd", "emit", None, "emit", "—", Some("pf-spd-emitsub"), "#6e747b"))
+                    }
+                    (token("pf-spd-token"))
+                }
+
+                (log_panel("pf-spd-log", "130px"))
+
+                div style="margin-top:16px;" {
+                    div style=(format!("font-family:{MONO}; font-size:10.5px; letter-spacing:.08em; color:#6e747b; text-transform:uppercase; margin-bottom:8px;")) { "emitted: pipeline-health.json" }
+                    pre id="pf-spd-json" style=(format!("margin:0; max-height:340px; overflow:auto; padding:14px 16px; border:1px solid #24282e; border-radius:8px; background:#101215; font-family:{MONO}; font-size:12px; line-height:1.65; color:#6e747b;")) {
+                        "// drive the pipeline, then press generate dashboard"
+                    }
+                }
             }
         },
     ))
@@ -147,5 +210,34 @@ mod tests {
         assert!(body.contains("data-sp-version=\"10.2.x\""));
         assert!(body.contains("id=\"pf-sp-payload\""));
         assert!(body.contains("id=\"pf-sp-err\""));
+    }
+
+    /// The generator reuses the compile flow rather than reimplementing it, so
+    /// it owes the same five nodes under its own prefix — plus the rig it
+    /// reads from. A missing id here is a silent no-op in the browser: the
+    /// script guards on element presence and simply never wires itself up.
+    #[test]
+    fn the_dashboard_generator_has_its_rig_and_its_own_flow() {
+        let body = render(&AppState::for_tests(false)).unwrap().into_string();
+        for key in ["generate", "valPy", "valNpm", "optimize", "emit"] {
+            assert!(
+                body.contains(&format!("data-node=\"spd:{key}\"")),
+                "the generator pipeline is missing node {key}"
+            );
+        }
+        for id in [
+            "pf-spd-canvas", // the telemetry rig the dashboard is compiled from
+            "pf-spd-lam",    // arrival-rate control
+            "pf-spd-run",
+            "pf-spd-json",
+            "pf-spd-emitsub",
+            "pf-spd-rho",
+            "pf-spd-drop",
+        ] {
+            assert!(
+                body.contains(&format!("id=\"{id}\"")),
+                "missing element {id}"
+            );
+        }
     }
 }

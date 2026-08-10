@@ -406,7 +406,188 @@
     return { size: size, draw: draw };
   }
 
-  var scenes = [makeWarp($('#pf-canvas-l')), makeWarp($('#pf-canvas-r')), makeBlackhole($('#pf-bh'))].filter(Boolean);
+  /* --- telemetry pipeline rig (splunk-dashboard-studio) --------------------
+     A real queueing model, not a loop of moving dots: Poisson arrivals,
+     exponential service, a bounded buffer -> M/M/1/K. The dashboard generated
+     below it is compiled from what this actually did, so the numbers have to
+     mean something. Exposed as a scene so it inherits the idle-CPU rules
+     above (hidden tab, reduced motion, debounced resize) for free. */
+  function makePipeline(canvas) {
+    if (!canvas) return null;
+    var ctx = canvas.getContext('2d', { alpha: false });
+    var MU = 40, CAP = 120, STEP = 1 / 120, V = 165, G = 820;
+    var ROLL = { hot: 5, warm: 9, cold: 14 };
+    var lam = 26, acc = 0, warmed = false;
+    var flight = [], buffer = [], drops = [], server = null, left = 0, nextArr = 0;
+    var tiers = { hot: [], warm: [], cold: [], frozen: [] };
+    var stored = 0, dropped = 0, peak = 0, areaL = 0, areaT = 0, tSim = 0;
+    var W = 0, H = 0, P = {};
+
+    function expo(rate) { return -Math.log(1 - Math.random()) / rate; }
+
+    function size() {
+      var w = canvas.clientWidth || 720, h = canvas.clientHeight || 270;
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      W = w; H = h;
+      // Inner margins: labels are centred on their station and bins straddle
+      // theirs, so the outermost of each needs clearance or it draws off-canvas.
+      var padX = Math.max(34, Math.min(58, w * 0.05));
+      var binW = Math.max(40, Math.min(64, w * 0.072));
+      var L = padX, R = w - padX, span = R - L;
+      var tR = R - binW / 2, gap = Math.min(span * 0.125, 112), tL = tR - gap * 3;
+      var stride = (tL - L) / 4;
+      P = {
+        lane: Math.max(52, h * 0.26), tier: h * 0.68, binW: binW,
+        src: L, agent: L + stride, buf: L + stride * 2, proc: L + stride * 3, idx: tL,
+        hot: tL, warm: tL + gap, cold: tL + gap * 2, frozen: tR
+      };
+    }
+
+    function advance(dt) {
+      tSim += dt;
+      nextArr -= dt;
+      while (nextArr <= 0) {
+        flight.push({ x: P.src, y: P.lane, to: 'agent', r: 2.8 });
+        nextArr += expo(lam);
+      }
+      for (var i = flight.length - 1; i >= 0; i--) {
+        var p = flight[i];
+        var target = p.to === 'agent' ? P.agent : p.to === 'buf' ? P.buf
+                   : p.to === 'idx' ? P.idx : P.hot;
+        p.x += V * dt;
+        if (p.to === 'tier') p.y += (P.tier - p.y) * Math.min(1, dt * 6);
+        if (p.x >= target) {
+          p.x = target;
+          if (p.to === 'agent') { p.to = 'buf'; }
+          else if (p.to === 'buf') {
+            if (buffer.length >= CAP) { dropped++; drops.push({ x: p.x, y: p.y, vx: -26, vy: -105, life: 1 }); }
+            else { buffer.push(p); }
+            flight.splice(i, 1);
+          } else if (p.to === 'idx') { p.to = 'tier'; p.r = p.r * 0.72; }
+          else { stored++; tiers.hot.push({ age: 0 }); flight.splice(i, 1); }
+        }
+      }
+      // Service consumes the step continuously and starts the next job with
+      // the time left over. Decrementing once per tick instead rounds every
+      // service up to a step boundary and wastes another going idle, which
+      // inflates a 25ms mean by a third and puts the queue 3x above M/M/1.
+      var rem = dt;
+      while (rem > 0) {
+        if (!server) { if (!buffer.length) break; server = buffer.shift(); left = expo(MU); }
+        var used = Math.min(rem, left);
+        left -= used; rem -= used;
+        if (left <= 1e-12) { server.to = 'idx'; server.x = P.proc; flight.push(server); server = null; }
+      }
+      areaL += (buffer.length + (server ? 1 : 0)) * dt; areaT += dt;
+      for (var d = drops.length - 1; d >= 0; d--) {
+        var q = drops[d];
+        q.x += q.vx * dt; q.vy += G * dt; q.y += q.vy * dt; q.life -= dt * 0.5;
+        if (q.y > H + 10 || q.life <= 0) drops.splice(d, 1);
+      }
+      var chain = [['hot', 'warm'], ['warm', 'cold'], ['cold', 'frozen']];
+      for (var c = 0; c < chain.length; c++) {
+        var arr = tiers[chain[c][0]];
+        for (var k = arr.length - 1; k >= 0; k--) {
+          arr[k].age += dt;
+          if (arr[k].age > ROLL[chain[c][0]]) { arr.splice(k, 1); tiers[chain[c][1]].push({ age: 0 }); }
+        }
+        while (arr.length > 200) arr.shift();
+      }
+      while (tiers.frozen.length > 140) tiers.frozen.shift();
+      var rho = lam / MU;
+      if (rho > peak) peak = rho;
+    }
+
+    function lab(x, y, text) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#6e747b';
+      ctx.font = '700 9.5px ' + MONO_STACK;
+      ctx.fillText(text, x, y);
+    }
+
+    function bin(x, list, colour, name) {
+      var w = P.binW, h = 46, y = P.tier;
+      ctx.strokeStyle = '#24282e'; ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      var fill = Math.min(1, list.length / 80);
+      ctx.fillStyle = colour; ctx.globalAlpha = 0.2;
+      ctx.fillRect(x - w / 2, y + h / 2 - fill * h, w, fill * h);
+      ctx.globalAlpha = 1;
+      lab(x, y - h / 2 - 8, name);
+      ctx.fillStyle = '#6e747b'; ctx.textAlign = 'center';
+      ctx.font = '400 9px ' + MONO_STACK;
+      ctx.fillText(list.length, x, y + h / 2 + 12);
+    }
+
+    function draw(dt, still) {
+      if (!W || canvas.clientWidth !== W) size();
+      if (!still) advance(Math.min(dt, 0.1));
+      else if (!warmed) { warmed = true; for (var i = 0; i < 700; i++) advance(STEP); }
+
+      ctx.fillStyle = '#0c0e11'; ctx.fillRect(0, 0, W, H);
+      ctx.lineWidth = 1; ctx.strokeStyle = '#24282e';
+      ctx.beginPath(); ctx.moveTo(P.src, P.lane); ctx.lineTo(P.idx, P.lane);
+      ctx.lineTo(P.hot, P.tier - 26); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(P.hot, P.tier); ctx.lineTo(P.frozen, P.tier); ctx.stroke();
+
+      var stations = [[P.src, 'SOURCES'], [P.agent, 'AGENT'], [P.buf, 'BUFFER'],
+                      [P.proc, 'PROCESS'], [P.idx, 'INDEX']];
+      for (var s = 0; s < stations.length; s++) {
+        ctx.beginPath(); ctx.moveTo(stations[s][0], P.lane - 20); ctx.lineTo(stations[s][0], P.lane + 20); ctx.stroke();
+        lab(stations[s][0], P.lane - 28, stations[s][1]);
+      }
+
+      var frac = Math.min(1, buffer.length / CAP);
+      ctx.strokeStyle = frac > 0.8 ? '#ef4759' : '#24282e';
+      ctx.strokeRect(P.buf - 11, P.lane + 20, 22, 44);   // flush with the station tick
+      ctx.fillStyle = frac > 0.8 ? '#ef4759' : '#f2b134'; ctx.globalAlpha = 0.35;
+      ctx.fillRect(P.buf - 11, P.lane + 64 - frac * 44, 22, frac * 44);
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = '#24282e'; ctx.strokeRect(P.proc - 9, P.lane - 9, 18, 18);
+      if (server) { ctx.fillStyle = '#ff7a45'; ctx.beginPath(); ctx.arc(P.proc, P.lane, 4, 0, 7); ctx.fill(); }
+
+      bin(P.hot, tiers.hot, '#ff7a45', 'HOT');
+      bin(P.warm, tiers.warm, '#f2b134', 'WARM');
+      bin(P.cold, tiers.cold, '#9aa3ad', 'COLD');
+      bin(P.frozen, tiers.frozen, '#5c636b', 'FROZEN');
+
+      for (var f = 0; f < flight.length; f++) {
+        var pp = flight[f];
+        ctx.fillStyle = pp.to === 'tier' ? '#ff7a45' : '#9aa0a7';
+        ctx.globalAlpha = pp.to === 'tier' ? 0.9 : 0.65;
+        ctx.beginPath(); ctx.arc(pp.x, pp.y, pp.r, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (var g = 0; g < drops.length; g++) {
+        ctx.globalAlpha = Math.max(0, drops[g].life); ctx.fillStyle = '#ef4759';
+        ctx.beginPath(); ctx.arc(drops[g].x, drops[g].y, 2.4, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    size();
+    return {
+      size: size, draw: draw,
+      setLambda: function (v) { lam = v; areaL = 0; areaT = 0; peak = v / MU; },
+      metrics: function () {
+        return {
+          lambda: lam, mu: MU, rho: lam / MU, peak: peak, cap: CAP,
+          buffer: buffer.length, dropped: dropped, stored: stored,
+          L: areaT > 0 ? areaL / areaT : 0, elapsed: tSim,
+          tiers: { hot: tiers.hot.length, warm: tiers.warm.length,
+                   cold: tiers.cold.length, frozen: tiers.frozen.length }
+        };
+      }
+    };
+  }
+
+  var MONO_STACK = "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace";
+  var pipeline = makePipeline($('#pf-spd-canvas'));
+  var scenes = [makeWarp($('#pf-canvas-l')), makeWarp($('#pf-canvas-r')), makeBlackhole($('#pf-bh')), pipeline].filter(Boolean);
 
   // Idle-CPU orchestration (batch/canvas-energy, 2026-08-09): the rAF loop
   // below used to run forever at display rate — a backgrounded tab kept
@@ -555,7 +736,11 @@
     var token = $('#pf-' + prefix + '-token');
     var logEl = $('#pf-' + prefix + '-log');
     var runT0 = null;
-    function node(id) { return wrap.querySelector('[data-' + prefix + '-node="' + id + '"]'); }
+    // Keyed off the generic `data-node="<prefix>:<key>"` every flow node
+    // carries, not the per-prefix `data-<prefix>-node` attribute: flow_node
+    // only emits that one for a hardcoded list of prefixes, so a new flow got
+    // no attribute, no error, and a pipeline that silently never animated.
+    function node(id) { return wrap.querySelector('[data-node="' + prefix + ':' + id + '"]'); }
     function moveToken(id) {
       var el = node(id);
       if (!el || !token) return;
@@ -753,6 +938,171 @@
         var bytes = payloadRows().reduce(function (n, r) { return n + r.t.length + 1; }, 0);
         if (emitSub) emitSub.textContent = version + ', ~' + bytes + 'b';
         sim.log('emit → compiled for splunk ' + version, 'ok');
+        running = false; runBtn.disabled = false; runBtn.style.opacity = 1;
+      })();
+    });
+  })();
+
+  /* --- splunk-dashboard-studio: dashboard generated from live telemetry --- */
+  (function () {
+    var sim = makeSim('spd');
+    if (!sim || !pipeline) return;
+    var running = false;
+    var runBtn = $('#pf-spd-run'), emitSub = $('#pf-spd-emitsub'), jsonEl = $('#pf-spd-json');
+    var lamIn = $('#pf-spd-lam'), lamV = $('#pf-spd-lamv');
+    var readout = {
+      rho: $('#pf-spd-rho'), buf: $('#pf-spd-buf'), drop: $('#pf-spd-drop'),
+      peak: $('#pf-spd-peak'), stored: $('#pf-spd-stored')
+    };
+
+    if (lamIn) {
+      lamIn.addEventListener('input', function () {
+        var v = +lamIn.value;
+        pipeline.setLambda(v);
+        if (lamV) lamV.textContent = v + '/s';
+        wake();                                   // reduced motion still owes one frame
+      });
+    }
+
+    setInterval(function () {
+      if (document.hidden || !readout.rho) return;
+      var m = pipeline.metrics();
+      readout.rho.textContent = m.rho.toFixed(2);
+      readout.rho.style.color = m.rho >= 1 ? CRIT : m.rho > 0.85 ? '#f2b134' : '#ece7dd';
+      readout.buf.textContent = m.buffer + '/' + m.cap;
+      readout.drop.textContent = m.dropped;
+      readout.drop.style.color = m.dropped ? CRIT : '#ece7dd';
+      readout.peak.textContent = m.peak.toFixed(2);
+      readout.stored.textContent = m.stored;
+    }, 500);
+
+    // A Dashboard Studio definition, in the shape Splunk actually expects:
+    // dataSources keyed by id, visualizations referencing them, and an
+    // absolute grid layout. Which panels appear is decided by the run.
+    function build(m) {
+      var ds = {}, viz = {}, structure = [], y = 0;
+      function panel(id, title, type, query, w, h, options) {
+        ds['ds_' + id] = {
+          type: 'ds.search', name: title,
+          options: { query: query }
+        };
+        viz['viz_' + id] = {
+          type: type, title: title,
+          dataSources: { primary: 'ds_' + id },
+          options: options || {}
+        };
+        structure.push({
+          item: 'viz_' + id, type: 'block',
+          position: { x: structure.length % 2 ? 720 : 0, y: y, w: w, h: h }
+        });
+        if (structure.length % 2 === 0) y += h;
+      }
+
+      panel('ingest_eps', 'Ingest rate (events/sec)', 'splunk.line',
+        '| mstats avg(_value) AS eps WHERE index=telemetry metric_name="pipeline.ingest.eps" span=1m',
+        720, 300, { yAxisTitleText: 'events/sec' });
+
+      // Thresholds come from the observed peak, not a default: the amber band
+      // opens where this run actually started queueing.
+      var amber = Math.max(0.7, Math.min(0.95, m.peak - 0.1)).toFixed(2);
+      panel('utilisation', 'Utilisation ρ = λ/μ', 'splunk.singlevalue',
+        '| mstats avg(_value) AS rho WHERE index=telemetry metric_name="pipeline.utilisation" span=1m',
+        720, 300, {
+          majorColor: '> rangeValue | rangeValueDynamic(rangeColors, rangeValues)',
+          rangeValues: [+amber, 1],
+          rangeColors: ['#118832', '#cba700', '#d41f1f'],
+          unit: 'ρ'
+        });
+
+      panel('queue_depth', 'Buffer occupancy', 'splunk.area',
+        '| mstats max(_value) AS depth WHERE index=telemetry metric_name="pipeline.buffer.depth" span=30s',
+        720, 280, { yAxisMax: m.cap });
+
+      panel('tier_mix', 'Events by storage tier', 'splunk.bar',
+        'index=telemetry sourcetype=pipeline:lifecycle | stats count BY tier',
+        720, 280, {});
+
+      // Only present because this run lost data. A dashboard that always shows
+      // a drop panel teaches people to ignore it.
+      if (m.dropped > 0) {
+        panel('drops', 'Dropped events (buffer full)', 'splunk.column',
+          '| mstats sum(_value) AS dropped WHERE index=telemetry metric_name="pipeline.dropped" span=1m',
+          720, 260, {});
+      }
+
+      return {
+        title: 'Pipeline health' + (m.dropped > 0 ? ' — saturated' : ''),
+        description: 'Generated from an observed run: λ ' + m.lambda + '/s, μ ' + m.mu
+          + '/s, peak ρ ' + m.peak.toFixed(2) + ', ' + m.stored + ' events stored'
+          + (m.dropped > 0 ? ', ' + m.dropped + ' dropped' : '') + '.',
+        inputs: {
+          input_global_trp: {
+            type: 'input.timerange', title: 'Global Time Range',
+            options: { token: 'global_time', defaultValue: '-24h,now' }
+          }
+        },
+        defaults: {
+          dataSources: {
+            'ds.search': {
+              options: {
+                queryParameters: { earliest: '$global_time.earliest$', latest: '$global_time.latest$' }
+              }
+            }
+          }
+        },
+        dataSources: ds,
+        visualizations: viz,
+        layout: {
+          type: 'grid',
+          globalInputs: ['input_global_trp'],
+          options: { width: 1440, height: y + 320, display: 'auto-scale' },
+          structure: structure
+        }
+      };
+    }
+
+    function paint(text) {
+      if (!jsonEl) return;
+      jsonEl.textContent = text;
+    }
+
+    runBtn.addEventListener('click', function () {
+      if (running) return;
+      running = true;
+      runBtn.disabled = true; runBtn.style.opacity = 0.5;
+      (async function () {
+        var m = pipeline.metrics();
+        sim.reset(['generate', 'valPy', 'valNpm', 'optimize', 'emit']);
+        if (emitSub) emitSub.textContent = '—';
+        paint('// compiling…');
+        await sleep(60);
+        sim.log('read telemetry → λ ' + m.lambda + '/s, ρ ' + m.rho.toFixed(2) + ', L ' + m.L.toFixed(1));
+
+        sim.moveToken('generate'); await sleep(360);
+        var doc = build(m);
+        var panels = Object.keys(doc.visualizations).length;
+        nodeStyle(sim.node('generate'), 'pass');
+        sim.log('generate → ' + panels + ' panel(s) from observed run');
+
+        sim.moveToken('valPy'); await sleep(340);
+        nodeStyle(sim.node('valPy'), 'pass');
+        sim.log('validate:pydantic → clean', 'ok');
+
+        sim.moveToken('valNpm'); await sleep(340);
+        nodeStyle(sim.node('valNpm'), 'pass');
+        sim.log('validate:splunk-npm → clean', 'ok');
+
+        sim.moveToken('optimize'); await sleep(320);
+        nodeStyle(sim.node('optimize'), 'pass');
+        sim.log('optimize → normalized output');
+
+        sim.moveToken('emit'); await sleep(320);
+        nodeStyle(sim.node('emit'), 'pass');
+        var text = JSON.stringify(doc, null, 2);
+        paint(text);
+        if (emitSub) emitSub.textContent = panels + ' panels, ~' + text.length + 'b';
+        sim.log('emit → pipeline-health.json (' + panels + ' panels)', 'ok');
+        if (m.dropped > 0) sim.log('drop panel included — this run lost ' + m.dropped + ' events', 'bad');
         running = false; runBtn.disabled = false; runBtn.style.opacity = 1;
       })();
     });

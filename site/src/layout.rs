@@ -41,6 +41,14 @@ pub fn shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Markup {
                 // SVG only, no PNG fallback: every browser that runs the wasm
                 // island on this site also reads an SVG favicon.
                 link rel="icon" type="image/svg+xml" href="/assets/favicon.svg";
+                (pwa_head())
+                // Owner-allowed exception (batch, 2026-08-09): tokens.css has
+                // always declared "JetBrains Mono" for this shell's monospace
+                // stack, but nothing loaded the webfont — /about rendered the
+                // system fallback instead of the font its own tokens ask for.
+                // Loading it here, before tokens.css, makes /about render what
+                // it already claims to.
+                link rel="stylesheet" href="/assets/fonts/fonts.css";
                 link rel="stylesheet" href="/assets/tokens.css";
                 link rel="stylesheet" href="/assets/site.css";
                 script src="/assets/htmx.min.js" defer {}
@@ -102,6 +110,7 @@ pub fn portfolio_shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Ma
                 meta name="description" content=(meta.description);
                 title { (meta.title) " — kennedy mosoti" }
                 link rel="icon" type="image/svg+xml" href="/assets/favicon.svg";
+                (pwa_head())
                 link rel="stylesheet" href="/assets/fonts/fonts.css";
                 link rel="stylesheet" href="/assets/portfolio.css";
                 script src="/assets/portfolio.js" defer {}
@@ -254,6 +263,21 @@ fn print_resume_doc() -> Markup {
             (h("Education & Certifications"))
             div style="color:#333;" { "B.S. Software Engineering, University of Texas at Arlington · Splunk Certified Admin · Splunk Power User · Cribl Certified User · AWS Certified Solutions Architect — Associate" }
         }
+    }
+}
+
+/// The installable identity both shells share: manifest, apple touch icon,
+/// theme colour, and the two apple-specific standalone-mode hints. One
+/// function rather than one copy per shell, so the two cannot drift the way a
+/// hand-copied block eventually does — see [`probe_boot`] for the same move
+/// made for the sensor script.
+fn pwa_head() -> Markup {
+    html! {
+        link rel="manifest" href="/assets/manifest.webmanifest";
+        link rel="apple-touch-icon" href="/assets/icons/apple-touch-180.png";
+        meta name="theme-color" content="#08090b";
+        meta name="apple-mobile-web-app-capable" content="yes";
+        meta name="apple-mobile-web-app-status-bar-style" content="black-translucent";
     }
 }
 

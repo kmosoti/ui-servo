@@ -42,6 +42,24 @@ pub const RESUME_PDF: &str = "kennedy-mosoti-resume.pdf";
 /// at, so every `/assets/…` reference in the markup is correct in both.
 const ASSETS_DIR: &str = "assets";
 
+/// The token in [`SW_TEMPLATE`] that both the exporter and the server replace
+/// before anything reads the file. A worker still carrying it has been served
+/// by neither, which is worth being able to assert.
+pub const SW_VERSION_PLACEHOLDER: &str = "__UI_SERVO_SW_VERSION__";
+
+/// The service worker, embedded at compile time.
+///
+/// Unlike `probe.js` — dev tooling, read live off disk so editing the sensor
+/// needs no rebuild — the worker is release-path code: it decides what a
+/// visitor sees when the network does not answer. Embedding it means the
+/// exporter cannot ship a file the server was never compiled against, and the
+/// two cannot be different versions of the same worker.
+pub const SW_TEMPLATE: &str = include_str!("sw.js");
+
+/// Where the stamped worker lands. The document root, because a worker's scope
+/// is its own directory and GitHub Pages cannot be told otherwise.
+const SW_FILE: &str = "sw.js";
+
 /// Tells GitHub Pages not to run Jekyll over the directory.
 const NOJEKYLL: &str = ".nojekyll";
 
@@ -252,6 +270,24 @@ pub fn export(state: &AppState, dist: &Path) -> Result<Report, ExportError> {
     // over this directory, which would otherwise drop every path beginning
     // with an underscore.
     write(&dist.join(NOJEKYLL), b"")?;
+
+    // Stamped last but one: every file the worker will cache is already on
+    // disk, so the version names exactly this asset set and nothing else. A
+    // fingerprint taken earlier would name a site that had not been written
+    // yet, and two different builds could then share a cache.
+    //
+    // `link_check` reads `.html` files only, so the string literals in the
+    // worker's precache list are never mistaken for links — they are URLs the
+    // browser asks for, not references a file host has to resolve, and the
+    // pages they name are asserted separately in
+    // `the_service_worker_is_stamped_and_precaches_every_page`.
+    let version = site_fingerprint(dist)?;
+    write(
+        &dist.join(SW_FILE),
+        SW_TEMPLATE
+            .replace(SW_VERSION_PLACEHOLDER, &version)
+            .as_bytes(),
+    )?;
 
     let links = link_check(dist)?;
 
@@ -674,6 +710,38 @@ pub fn sha256_file(path: &Path) -> Result<String, ExportError> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// One short hex string naming everything in `dist/`.
+///
+/// The service worker's cache is named after this, which is the whole reason it
+/// exists: the cache is discarded when the name changes, and the name changes
+/// with the build rather than with somebody remembering to bump a number. Paths
+/// are fed in alongside their hashes, so a file renamed with its bytes intact —
+/// which is a different site to a browser resolving URLs — is a different
+/// fingerprint. [`walk`] returns a sorted list, so the answer does not depend on
+/// the order the filesystem happened to hand entries back.
+///
+/// **This is not a reproducible-build hash, and should not be read as one.**
+/// Every page carries a `data-span-id` minted per render, so two exports of an
+/// unchanged tree fingerprint differently and a no-op redeploy costs returning
+/// visitors the fonts and the wasm bundle again. That is the accepted price: a
+/// version that is *never* wrong is worth more here than one that is sometimes
+/// cheaper, because the failure it rules out — a new build served out of an old
+/// cache — is silent, and the failure it accepts is a download.
+///
+/// Sixteen hex characters, not sixty-four: this names a build to a cache on one
+/// origin, and nothing decides anything on the strength of it being hard to
+/// forge.
+pub fn site_fingerprint(dist: &Path) -> Result<String, ExportError> {
+    let mut hasher = Sha256::new();
+    for file in walk(dist)? {
+        hasher.update(relative(dist, &file).as_bytes());
+        hasher.update(b"\0");
+        hasher.update(sha256_file(&file)?.as_bytes());
+        hasher.update(b"\n");
+    }
+    Ok(format!("{:x}", hasher.finalize())[..16].to_owned())
+}
+
 /// Every internal `href` and `src` in the exported HTML resolves to a file.
 ///
 /// Returns the number of internal references checked, which is worth printing:
@@ -1091,6 +1159,91 @@ mod tests {
 
         assert!(report.assets > 0, "no assets copied");
         assert!(report.links > 0, "the link check found nothing to check");
+    }
+
+    /// The URLs in the worker's `PRECACHE` array, read out of the template.
+    ///
+    /// Parsed from the array rather than searched for anywhere in the file: the
+    /// header comment names several of these paths while explaining what is
+    /// *not* precached, and a `contains` over the whole template would happily
+    /// certify a page that only appears in prose.
+    fn precache_urls() -> Vec<String> {
+        let (_, rest) = SW_TEMPLATE
+            .split_once("var PRECACHE = [")
+            .expect("sw.js declares a PRECACHE array");
+        let (list, _) = rest.split_once(']').expect("the array is closed");
+        list.split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| {
+                entry
+                    .strip_prefix('\'')
+                    .and_then(|entry| entry.strip_suffix('\''))
+                    .unwrap_or_else(|| panic!("{entry:?} is not a single-quoted URL"))
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// Every page the site publishes is in the worker's precache list, and the
+    /// exported worker is stamped with a version.
+    ///
+    /// The first half is the one that decays. A page added to the manifest is
+    /// exported, linked, and link-checked automatically — and would be silently
+    /// absent from the offline site, because the precache list is a literal in
+    /// a `.js` file that nothing else reads. So the list is compared against
+    /// `ROUTES` here, in the URL form a browser asks for, which is not the
+    /// `about/index.html` form the exporter writes.
+    ///
+    /// The second half is the stamp: an unstamped worker would name its cache
+    /// `ui-servo-__UI_SERVO_SW_VERSION__` and every deploy would share it,
+    /// which is exactly the eviction bug this design exists to avoid.
+    #[test]
+    fn the_service_worker_is_stamped_and_precaches_every_page() {
+        let precached = precache_urls();
+        for route in routes::ROUTES {
+            let Some(output) = route.output_path() else {
+                continue;
+            };
+            let url = match output.strip_suffix("index.html") {
+                Some(prefix) => format!("/{}", prefix.trim_end_matches('/')),
+                None => format!("/{output}"),
+            };
+            assert!(
+                precached.contains(&url),
+                "{} exports to {output}, which the service worker does not precache — add \
+                 {url:?} to PRECACHE in src/sw.js, or the offline site is missing a page",
+                route.path
+            );
+        }
+
+        let (scratch, _) = exported();
+
+        // `cache.addAll` is all-or-nothing: one URL that 404s rejects the whole
+        // install and the site ships with no offline support at all, which
+        // looks exactly like a site that was never given any. Nothing else
+        // notices — `link_check` reads `.html` only, and these are string
+        // literals in a `.js` file — so the assets are resolved here.
+        for url in &precached {
+            let Some(relative) = url.strip_prefix("/assets/") else {
+                continue;
+            };
+            assert!(
+                scratch.path().join(ASSETS_DIR).join(relative).is_file(),
+                "the service worker precaches {url}, which the export does not write — the \
+                 install would reject and the whole cache would be empty"
+            );
+        }
+
+        let worker = read(scratch.path(), SW_FILE);
+        assert!(
+            !worker.contains(SW_VERSION_PLACEHOLDER),
+            "the exported worker is unstamped"
+        );
+        assert!(
+            worker.contains("ui-servo-"),
+            "the exported worker names no cache"
+        );
     }
 
     /// Nothing in the export carries the sensor runtime. A static page that

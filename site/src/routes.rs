@@ -133,6 +133,27 @@ pub const ROUTES: [Route; 9] = [
 /// deliberately nested route from one somebody forgot to list.
 pub const NESTED_ASSET_ROUTES: [&str; 1] = ["/probe.js"];
 
+/// Files served from the document root that are not pages and never will be.
+///
+/// Same job as [`NESTED_ASSET_ROUTES`]: the source-scan test needs to tell a
+/// deliberate registration from one somebody forgot to add to the manifest.
+///
+/// `/sw.js` cannot live under `/assets/` with everything else it resembles. A
+/// service worker's maximum scope is its own directory unless the host sends a
+/// `Service-Worker-Allowed` header, and GitHub Pages sends no headers anybody
+/// can configure — so a worker at `/assets/sw.js` would be scoped to `/assets/`
+/// and could never answer a navigation to `/`, which is the only thing it is
+/// for. The URL is the feature.
+///
+/// Note what this list does *not* buy, because the name invites the assumption:
+/// unlike [`RouteKind::Page`], nothing here is a function pointer, so the
+/// exporter is not driven by it. `/sw.js` reaches `dist/` because
+/// [`crate::export::export`] writes it by hand. A second entry added here would
+/// satisfy the source scan and be exported by nobody — so add the write at the
+/// same time, or this becomes the list of URLs that work in dev and 404 at
+/// mosoti.dev, which is the exact failure `ROUTES` exists to prevent.
+pub const ROOT_FILE_ROUTES: [&str; 1] = ["/sw.js"];
+
 /// `/about`, adapted to [`PageRender`].
 ///
 /// `pages::about::render` is infallible and `pages::home::render` is not. The
@@ -281,6 +302,7 @@ mod tests {
             .iter()
             .map(|route| route.path)
             .chain(NESTED_ASSET_ROUTES)
+            .chain(ROOT_FILE_ROUTES)
             .collect();
 
         let mut found = 0;
@@ -291,8 +313,8 @@ mod tests {
                 assert!(
                     known.contains(path),
                     "server.rs registers {path:?}, which is not in routes::ROUTES \
-                     (nor in NESTED_ASSET_ROUTES). Add it, or the exporter will \
-                     never know it exists."
+                     (nor in NESTED_ASSET_ROUTES or ROOT_FILE_ROUTES). Add it, or \
+                     the exporter will never know it exists."
                 );
                 found += 1;
             }

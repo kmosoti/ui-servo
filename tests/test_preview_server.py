@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from litestar import Litestar
 from litestar.testing import TestClient
 
 from ui_servo.adapters.beacon_ingest import (
@@ -394,10 +395,24 @@ class TestIngestHealth:
         assert "the disk is full" in caplog.text
         assert app.state.ingest_health.lost == 1
 
-    def test_the_router_shares_the_apps_counters(self) -> None:
+    def test_the_router_shares_the_apps_counters(self, tmp_path: Path) -> None:
+        """The counters passed in are the ones the route mutates, not a copy.
+
+        Exercised through a request rather than an attribute, because the
+        object the route writes to is what matters -- ``create_app`` reaches
+        the same counters through ``app.state.ingest_health`` (see the two
+        tests above), and this is the same guarantee at the router's own
+        boundary, one layer further in.
+        """
         health = IngestHealth()
-        router = create_beacon_router(JsonlEvidenceStore("/tmp"), turn_id=TURN, health=health)
-        assert router.health is health
+        router = create_beacon_router(
+            JsonlEvidenceStore(tmp_path / "evidence"), turn_id=TURN, health=health
+        )
+        app = Litestar(route_handlers=[router], openapi_config=None, logging_config=None)
+        with TestClient(app) as router_client:
+            assert post_beacon(router_client, [beacon_event()]).status_code == 204
+        assert health.batches == 1
+        assert health.stored == 1
 
 
 class TestDecodeBatch:
@@ -588,6 +603,35 @@ class TestFixtureRoute:
             response = client.get("/fixture")
         assert response.status_code == 404
         assert "development route" in response.json()["detail"]
+
+
+class TestHeadRequests:
+    """Litestar, unlike Starlette, does not add ``HEAD`` to a route just
+    because ``GET`` is declared -- a route that forgot to ask for both would
+    405 a liveness probe or a ``curl -I`` that used to get a 200. This walks
+    the live route table rather than naming routes one at a time, so a route
+    added later is covered by construction instead of by remembering to.
+    """
+
+    def test_every_get_route_also_answers_head(self, client: TestClient) -> None:
+        get_routes = [route for route in client.app.routes if "GET" in route.methods]
+        assert get_routes, "the app has no GET routes to check"
+        for route in get_routes:
+            assert "HEAD" in route.methods, f"{route.path} takes GET but not HEAD"
+
+    def test_head_matches_get_on_concrete_paths(self, client: TestClient) -> None:
+        concrete_paths = [
+            route.path
+            for route in client.app.routes
+            if "GET" in route.methods and "{" not in route.path
+        ]
+        assert concrete_paths, "no concrete (parameter-free) GET routes to check"
+        for path in concrete_paths:
+            assert client.head(path).status_code == client.get(path).status_code
+
+    def test_head_matches_get_on_the_candidate_route(self, client: TestClient) -> None:
+        assert client.head("/candidate/hero").status_code == client.get("/candidate/hero").status_code
+        assert client.head("/candidate/nosuch").status_code == client.get("/candidate/nosuch").status_code
 
 
 class TestSplitDocument:

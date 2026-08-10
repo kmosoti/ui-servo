@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import orjson
-from litestar import Litestar, MediaType, Request, Response, get
+from litestar import HttpMethod, Litestar, MediaType, Request, Response, route
 from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.params import FromPath
@@ -82,6 +82,12 @@ against a checkout and has no meaning in a deployed wheel."""
 
 PROBE_URL: Final[str] = "/assets/probe.js"
 TOKENS_URL: Final[str] = "/assets/tokens.css"
+
+_GET_AND_HEAD: Final[list[HttpMethod]] = [HttpMethod.GET, HttpMethod.HEAD]
+"""Litestar, unlike Starlette, does not add ``HEAD`` to a route just because
+``GET`` is declared -- every read route here takes both explicitly so a
+liveness probe or ``curl -I`` gets the same status FastAPI gave it instead of
+a 405."""
 
 SITE_CSS: Final[Path] = Path(__file__).resolve().parents[2] / "site" / "assets" / "site.css"
 """The site's own stylesheet, inlined into every preview.
@@ -501,7 +507,7 @@ def create_app(
         site_css_text = Path(site_css).read_text(encoding="utf-8")
     health = IngestHealth()
 
-    @get("/candidate/{name:str}")
+    @route("/candidate/{name:str}", http_method=_GET_AND_HEAD)
     async def candidate(name: FromPath[str]) -> Response[str]:
         path = candidate_path(candidates_dir, name)
         head_extra, body_attrs, body_html = split_document(
@@ -525,7 +531,7 @@ def create_app(
             media_type=MediaType.HTML,
         )
 
-    @get("/fixture")
+    @route("/fixture", http_method=_GET_AND_HEAD)
     async def fixture() -> Response[str]:
         if fixture_html is None or not fixture_html.is_file():
             raise NotFoundException(
@@ -556,7 +562,7 @@ def create_app(
             media_type=MediaType.HTML,
         )
 
-    @get(PROBE_URL)
+    @route(PROBE_URL, http_method=_GET_AND_HEAD)
     async def probe_asset() -> Response[str]:
         try:
             source = probe_source(probe_js)
@@ -566,7 +572,7 @@ def create_app(
         # media type, and saying it twice is a malformed header.
         return Response(source, media_type="text/javascript")
 
-    @get(TOKENS_URL)
+    @route(TOKENS_URL, http_method=_GET_AND_HEAD)
     async def tokens() -> Response[str]:
         return Response(tokens_css, media_type="text/css")
 

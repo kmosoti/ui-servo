@@ -56,7 +56,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import orjson
-from litestar import Request, Response, Router, get, post
+from litestar import HttpMethod, Request, Response, Router, post, route
 
 from ui_servo.domain.evidence import Signal, TurnId
 from ui_servo.ports.store import EvidenceStorePort, StoreError
@@ -443,25 +443,6 @@ async def read_limited_body(request: Request, *, limit: int = MAX_BODY_BYTES) ->
     return b"".join(chunks)
 
 
-class BeaconRouter(Router):
-    """A router that carries the counters its own routes write to.
-
-    Litestar's :class:`~litestar.router.Router` declares ``__slots__``, so the
-    counters cannot be stapled onto an instance after the fact -- which is the
-    better outcome, because the sharing was never incidental. Whatever mounts
-    this router (the preview server today, an ingest daemon tomorrow) and
-    whatever reads the health route are looking at *one* :class:`IngestHealth`,
-    and declaring the attribute here makes that part of the type rather than a
-    convention held together by a ``type: ignore``.
-    """
-
-    __slots__ = ("health",)
-
-    def __init__(self, *args: Any, health: IngestHealth, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.health = health
-
-
 def create_beacon_router(
     store: EvidenceStorePort,
     *,
@@ -470,7 +451,7 @@ def create_beacon_router(
     health_path: str = HEALTH_PATH,
     source: str = PROBE_SOURCE,
     health: IngestHealth | None = None,
-) -> BeaconRouter:
+) -> Router:
     """A router exposing ``POST {path}`` for ``probe/probe.js``.
 
     The store is injected rather than constructed so the same router serves the
@@ -515,7 +496,7 @@ def create_beacon_router(
         _append(store, signals, counters)
         return Response(b"", status_code=204)
 
-    @get(health_path, include_in_schema=False)
+    @route(health_path, http_method=[HttpMethod.GET, HttpMethod.HEAD], include_in_schema=False)
     async def ingest_health() -> Response[bytes]:
         # 503 when evidence has been lost, so a liveness check notices the one
         # failure that would otherwise be invisible until a gate read an empty turn.
@@ -525,7 +506,7 @@ def create_beacon_router(
             status_code=200 if counters.ok else 503,
         )
 
-    return BeaconRouter(path="/", route_handlers=[ingest, ingest_health], health=counters)
+    return Router(path="/", route_handlers=[ingest, ingest_health])
 
 
 def _append(store: EvidenceStorePort, signals: Iterable[Signal], health: IngestHealth) -> int:

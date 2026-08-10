@@ -52,11 +52,25 @@ type SignalKind = str
 # Failure vocabulary                                                           #
 # --------------------------------------------------------------------------- #
 #
-# TODO(policy): consolidate into `ui_servo.domain.policy` once it lands, so the gate
-# configuration and the critique rubric read the same failure vocabulary. Kept local
-# for now rather than defaulted inside `ui_servo.domain.evidence`, which deliberately
-# holds no opinion about which kinds are failures -- that is policy, and policy moves
-# on its own clock.
+# Finding (batch, 2026-08-09): NOT a mechanical consolidation into
+# `ui_servo.domain.policy`. This module's FAILURE_KINDS (10 kinds: the 7 runtime-error
+# kinds plus unknown-class, overflow and motion-violation) is a strict subset of
+# `policy.FAILURE_KINDS` (20 kinds). Policy additionally carries axe-violation, the
+# sanitizer kinds (malformed-fragment, disallowed-tag, disallowed-attribute,
+# disallowed-url, missing-span-id, unknown-attribute, invalid-attribute-value),
+# layout-shift and judge-error -- kinds that each already have their own gate
+# elsewhere in the pipeline. Substituting policy's set here would double-count those
+# and silently widen this gate. The two vocabularies are intentionally different
+# granularities: this one is fast-loop gates, policy's is the governance-wide
+# canonical list. Kept local rather than defaulted inside `ui_servo.domain.evidence`,
+# which deliberately holds no opinion about which kinds are failures -- that is
+# policy, and policy moves on its own clock.
+#
+# `tests/test_regulator.py` enforces `FAILURE_KINDS <= policy.FAILURE_KINDS` so this
+# claim cannot silently rot, but the reverse is a judgement call, not a bug: if a new
+# runtime failure kind is added to policy's `CORRECTNESS_FAILURE_KINDS`, decide
+# separately whether this fast-loop gate should also carry it -- the subset test will
+# not force the question.
 
 RUNTIME_ERROR_KINDS: Final[frozenset[SignalKind]] = frozenset(
     {"js-error", "rejection", "csp", "swap-error", "ce-error", "wasm-error", "wasm-panic"}
@@ -269,7 +283,6 @@ class Regulator:
     contract: DirectionContract
     anti_corpus: tuple[StyleVector, ...] = ()
     axe_tags: frozenset[str] = DEFAULT_AXE_TAGS
-    failure_kinds: frozenset[SignalKind] = FAILURE_KINDS
     now: Callable[[], str] = field(default=_utc_now, repr=False)
 
     def regulate(

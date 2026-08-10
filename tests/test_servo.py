@@ -30,6 +30,8 @@ from typing import Any
 
 import pytest
 
+from ui_servo.adapters.jsonl_store import EXEMPLAR_DIRNAME
+from ui_servo.cli.servo import build_stores
 from ui_servo.control import servo
 from ui_servo.control.regulator import (
     GATE_NO_UNKNOWN_CLASS,
@@ -499,6 +501,26 @@ class TestDryPanel:
 # --------------------------------------------------------------------------- #
 # The CLI                                                                      #
 # --------------------------------------------------------------------------- #
+
+
+def test_cli_wires_the_exemplar_store_to_out_dir_not_out_dir_slash_exemplars(
+    tmp_path: Path,
+) -> None:
+    """Regression: ``cli.servo.build_stores`` used to construct
+    ``JsonlExemplarStore(out_dir / "exemplars")``, but the store already appends
+    ``EXEMPLAR_DIRNAME`` to whatever root it is given (see ``TestExemplarStore`` in
+    ``test_evidence.py``). That stranded every exemplar at
+    ``<out>/exemplars/exemplars/<name>/...`` instead of ``<out>/exemplars/<name>``.
+    This calls the real construction site ``main()`` uses, so a revert of the fix
+    fails this test.
+    """
+    out_dir = tmp_path / "servo-round0"
+    out_dir.mkdir()
+    stores = build_stores(out_dir)
+    stores.exemplar.save_exemplar("hero-hero.claude.0", {"fragment.html": b"<p>hi</p>"}, {})
+    saved = stores.exemplar.path_for("hero-hero.claude.0")
+    assert saved == out_dir / EXEMPLAR_DIRNAME / "hero-hero.claude.0"
+    assert saved.is_dir()
 
 
 @pytest.mark.playwright

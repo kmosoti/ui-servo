@@ -92,6 +92,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_stores(out_dir: Path) -> Stores:
+    """Construct the round's two JSONL stocks under a single output directory.
+
+    ``JsonlExemplarStore`` appends ``"exemplars/"`` to its root itself (see its
+    ``__init__``); handing it ``out_dir / "exemplars"`` here used to double the
+    segment, stranding exemplars at ``<out>/exemplars/exemplars/<name>/...``
+    (batch, 2026-08-09).
+    """
+    return Stores(
+        evidence=jsonl_store.JsonlEvidenceStore(out_dir),
+        exemplar=jsonl_store.JsonlExemplarStore(out_dir),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -109,14 +123,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     out_dir: Path = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
     turn_id = f"turn-{args.round_id}"
-    store = jsonl_store.JsonlEvidenceStore(out_dir)
-    stores = Stores(evidence=store, exemplar=jsonl_store.JsonlExemplarStore(out_dir / "exemplars"))
+    stores = build_stores(out_dir)
     sanitizer = default_sanitizer(contract, tokens_css=contract.to_css_custom_properties())
     judges = dry_panel() if args.dry_judges else cli_judges.default_panel()
     part_spec = args.part_spec.read_text(encoding="utf-8") if args.part_spec else ""
     anti_corpus = load_anti_corpus(args.anti_corpus, contract, on_error=print)
 
-    with previews(args.candidates, store, contract, turn_id) as base_url:
+    with previews(args.candidates, stores.evidence, contract, turn_id) as base_url:
         with playwright_sensor.PlaywrightSensor(artifacts_dir=out_dir / "artifacts") as sensor:
             result = run_round(
                 variants,

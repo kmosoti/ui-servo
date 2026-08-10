@@ -14,10 +14,21 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
+use tower_http::compression::predicate::NotForContentType;
+use tower_http::compression::{CompressionLayer, DefaultPredicate, Predicate};
 use tower_http::trace::TraceLayer;
 
 /// Default listen port. `UI_SERVO_PORT` overrides.
 pub const DEFAULT_PORT: u16 = 8080;
+
+/// Default bind interface. `UI_SERVO_HOST` overrides.
+///
+/// Loopback is right for the droplet this is headed to: a reverse proxy
+/// (nginx, Caddy) terminates TLS on the public interface and forwards to this
+/// process over `127.0.0.1`, so the process itself never needs to be
+/// reachable from outside the box. Exposing it directly is a deployment
+/// choice, made by setting `UI_SERVO_HOST=0.0.0.0` — configuration, not code.
+pub const DEFAULT_HOST: &str = "127.0.0.1";
 
 /// Configure logging, read the environment, bind, serve until a signal.
 pub async fn run() -> Result<(), StartupError> {
@@ -30,6 +41,7 @@ pub async fn run() -> Result<(), StartupError> {
 
     let state = AppState::from_env()?;
     let port = port_from_env()?;
+    let host = host_from_env()?;
 
     tracing::info!(
         assets = %state.assets_dir().display(),
@@ -44,7 +56,7 @@ pub async fn run() -> Result<(), StartupError> {
         tracing::warn!("UI_SERVO_DEV=1 but no probe.js found; pages will request it and 404");
     }
 
-    let addr = format!("127.0.0.1:{port}");
+    let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .map_err(|source| StartupError::Bind {
@@ -80,7 +92,25 @@ pub fn app(state: AppState) -> Router {
     // at the document root or it could never answer a navigation. Declared in
     // `routes::ROOT_FILE_ROUTES` so the source scan knows it is deliberate.
     router = router.route("/sw.js", get(service_worker));
-    router.layer(TraceLayer::new_for_http()).with_state(state)
+    router
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new().compress_when(compression_predicate()))
+        .with_state(state)
+}
+
+/// Which responses are worth spending CPU to gzip/brotli-compress.
+///
+/// Starts from tower-http's [`DefaultPredicate`] — it already skips tiny
+/// bodies, gRPC, images and SSE — and excludes two more types that are
+/// already compressed on disk, where re-compressing buys nothing but CPU:
+/// `font/woff2` (already a compressed container format) and
+/// `application/pdf` (the résumé, already compressed internally).
+/// `application/wasm` deliberately stays compressible: unlike those two it is
+/// not pre-compressed, and gzip/brotli typically shave ~40-50% off it.
+fn compression_predicate() -> impl Predicate {
+    DefaultPredicate::new()
+        .and(NotForContentType::const_new("font/woff2"))
+        .and(NotForContentType::const_new("application/pdf"))
 }
 
 /// One manifest entry, wired to the handler its kind implies.
@@ -218,14 +248,20 @@ async fn static_asset(
     let body = tokio::fs::read(&resolved)
         .await
         .map_err(|_| RouteError::UnknownFragment(decoded.clone()))?;
-    Ok((
+    let mut response = (
         [(
             header::CONTENT_TYPE,
             HeaderValue::from_static(content_type_of(&resolved)),
         )],
         body,
     )
-        .into_response())
+        .into_response();
+    if let Some(cache_control) = cache_control_of(&resolved) {
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache_control));
+    }
+    Ok(response)
 }
 
 /// The `Content-Type` for one asset, by extension.
@@ -248,6 +284,31 @@ pub fn content_type_of(path: &std::path::Path) -> &'static str {
         Some("woff2") => "font/woff2",
         Some("html") => "text/html; charset=utf-8",
         _ => "application/octet-stream",
+    }
+}
+
+/// The `Cache-Control` for one asset, keyed by the same extension match as
+/// [`content_type_of`] so the two lists cannot quietly drift apart.
+///
+/// **Where this header actually lands.** Production today is GitHub Pages,
+/// which sets its own `Cache-Control` regardless of anything this function
+/// returns — this layer has no effect there. It governs dev/local `cargo run`
+/// now, and will govern the droplet once the server itself is the origin
+/// behind a reverse proxy.
+///
+/// `woff2` gets a year and `immutable`: font files are requested once per
+/// visitor per browser profile and never need revalidation mid-visit.
+/// `html` gets `no-cache` rather than a max-age, so a revisit always
+/// revalidates rather than risking a stale shell. Everything else gets an
+/// hour — long enough to spare a repeat visit within a session, short enough
+/// that a redeploy is not stuck behind a stale cache for long.
+pub fn cache_control_of(path: &std::path::Path) -> Option<&'static str> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("woff2") => Some("public, max-age=31536000, immutable"),
+        Some("css") | Some("js") | Some("json") | Some("wasm") | Some("svg") | Some("png")
+        | Some("pdf") => Some("public, max-age=3600"),
+        Some("html") => Some("no-cache"),
+        _ => None,
     }
 }
 
@@ -344,6 +405,36 @@ fn port_from_env() -> Result<u16, StartupError> {
     }
 }
 
+/// Resolve the bind interface from `UI_SERVO_HOST`, defaulting to loopback.
+///
+/// An unset variable is fine (that is the common case); a variable set to the
+/// empty string is not, because `format!("{host}:{port}")` would silently
+/// produce `":{port}"` — a socket address libc happens to accept as "any
+/// interface", which is exactly the exposure this crate should never pick
+/// silently. That case is rejected here rather than left for the bind
+/// syscall to explain.
+///
+/// This reuses [`StartupError::Bind`] rather than adding a dedicated variant:
+/// `StartupError` lives in `error.rs`, outside this unit's change surface, and
+/// `Bind`'s `{addr}: {source}` shape already reads clearly for an address
+/// problem caught before the bind attempt as well as during one.
+fn host_from_env() -> Result<String, StartupError> {
+    match std::env::var("UI_SERVO_HOST") {
+        Err(_) => Ok(DEFAULT_HOST.to_owned()),
+        Ok(raw) if raw.is_empty() => Err(StartupError::Bind {
+            addr: "UI_SERVO_HOST=\"\"".to_owned(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "UI_SERVO_HOST is set but empty; unset it to use the default \
+                     ({DEFAULT_HOST}), or set it to a real host"
+                ),
+            ),
+        }),
+        Ok(raw) => Ok(raw),
+    }
+}
+
 /// Ctrl-C or SIGTERM. Containers send the latter; `cargo run` sends the former.
 async fn shutdown_signal() {
     let interrupt = async {
@@ -429,6 +520,25 @@ mod tests {
             .unwrap_or_default()
             .to_owned();
         (response.status(), value)
+    }
+
+    /// Like [`response`], but with a request header set — for asserting
+    /// things that depend on what the client sent, like `Accept-Encoding`.
+    async fn response_with_request_header(
+        path: &str,
+        name: header::HeaderName,
+        value: &str,
+    ) -> Response {
+        app(AppState::for_tests(false))
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(name, value)
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("router is infallible")
     }
 
     #[tokio::test]
@@ -704,5 +814,125 @@ mod tests {
         assert_eq!(content_type, "text/javascript; charset=utf-8");
         let (_, cache_control) = header_of("/sw.js", header::CACHE_CONTROL).await;
         assert_eq!(cache_control, "no-store");
+    }
+
+    /// `probe.js` is dev instrumentation, fetched by every measured page load.
+    /// `no-store` — not just a short max-age — matters because it is the
+    /// difference between "the sensor might run stale code once" and "it
+    /// never silently does": a cached copy of a sensor is a false reading.
+    #[tokio::test]
+    async fn probe_js_is_never_cached() {
+        let (status, cache_control) = header_of("/assets/probe.js", header::CACHE_CONTROL).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(cache_control, "no-store");
+    }
+
+    /// `Cache-Control` on committed static assets, keyed by extension per
+    /// [`cache_control_of`], exercised through the real router rather than by
+    /// calling the function directly — this is what a request actually gets
+    /// back.
+    #[tokio::test]
+    async fn cache_control_is_keyed_by_extension() {
+        for (path, expected) in [
+            (
+                "/assets/fonts/jetbrains-mono-400-latin.woff2",
+                "public, max-age=31536000, immutable",
+            ),
+            ("/assets/portfolio.css", "public, max-age=3600"),
+            ("/assets/portfolio.js", "public, max-age=3600"),
+        ] {
+            let (status, cache_control) = header_of(path, header::CACHE_CONTROL).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert_eq!(cache_control, expected, "{path}");
+        }
+    }
+
+    /// No `.html` file is committed under `assets/` for the live server to
+    /// serve — pages render straight from `RouteKind::Page`, never through
+    /// `static_asset` — so unlike the extensions above, the `html` mapping
+    /// has no live route to exercise through `oneshot`. Asserted directly
+    /// against the table it shares with `content_type_of` instead, alongside
+    /// every other extension `static_asset` recognises.
+    #[test]
+    fn cache_control_of_maps_every_known_extension() {
+        assert_eq!(
+            cache_control_of(std::path::Path::new("a.woff2")),
+            Some("public, max-age=31536000, immutable")
+        );
+        for ext in ["css", "js", "json", "wasm", "svg", "png", "pdf"] {
+            assert_eq!(
+                cache_control_of(std::path::Path::new(&format!("a.{ext}"))),
+                Some("public, max-age=3600"),
+                "{ext}"
+            );
+        }
+        assert_eq!(
+            cache_control_of(std::path::Path::new("index.html")),
+            Some("no-cache")
+        );
+        assert_eq!(cache_control_of(std::path::Path::new("a.unknown")), None);
+    }
+
+    /// `portfolio.js` is well above `DefaultPredicate`'s 32-byte floor and is
+    /// not one of the excluded types, so a client that accepts gzip gets it
+    /// — this is the real ~40-50% win the compression layer exists for.
+    #[tokio::test]
+    async fn compressible_assets_gzip_for_a_client_that_accepts_it() {
+        let response =
+            response_with_request_header("/assets/portfolio.js", header::ACCEPT_ENCODING, "gzip")
+                .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_ENCODING)
+                .and_then(|value| value.to_str().ok()),
+            Some("gzip"),
+            "portfolio.js should compress under gzip"
+        );
+    }
+
+    /// woff2 is already a compressed container format; the predicate excludes
+    /// it explicitly (see [`compression_predicate`]), so it must reach the
+    /// client with no `Content-Encoding` even when the client offers gzip.
+    #[tokio::test]
+    async fn woff2_is_excluded_from_compression() {
+        let response = response_with_request_header(
+            "/assets/fonts/jetbrains-mono-400-latin.woff2",
+            header::ACCEPT_ENCODING,
+            "gzip",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response
+                .headers()
+                .get(header::CONTENT_ENCODING)
+                .is_none(),
+            "woff2 is already compressed; it should be served as-is"
+        );
+    }
+
+    /// `UI_SERVO_HOST` is not touched by any other test in this crate, so
+    /// exercising all three cases in one test (rather than three tests that
+    /// could interleave on the same process-global environment variable)
+    /// keeps this deterministic under `cargo test`'s default parallelism.
+    #[test]
+    fn host_from_env_reads_and_validates_ui_servo_host() {
+        // SAFETY: single-threaded within this test, and no other test in the
+        // crate reads or writes UI_SERVO_HOST.
+        unsafe { std::env::remove_var("UI_SERVO_HOST") };
+        assert_eq!(host_from_env().unwrap(), DEFAULT_HOST);
+
+        unsafe { std::env::set_var("UI_SERVO_HOST", "0.0.0.0") };
+        assert_eq!(host_from_env().unwrap(), "0.0.0.0");
+
+        unsafe { std::env::set_var("UI_SERVO_HOST", "") };
+        assert!(
+            matches!(host_from_env(), Err(StartupError::Bind { .. })),
+            "an empty UI_SERVO_HOST should be rejected before a bind is attempted"
+        );
+
+        unsafe { std::env::remove_var("UI_SERVO_HOST") };
     }
 }

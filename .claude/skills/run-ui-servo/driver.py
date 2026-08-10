@@ -42,7 +42,7 @@ def wait_for(url: str, seconds: int) -> bool:
         try:
             urllib.request.urlopen(url, timeout=1)
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 -- polling loop: any failure just means "not ready yet"
             time.sleep(1)
     return False
 

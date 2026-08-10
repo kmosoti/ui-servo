@@ -343,7 +343,7 @@ async fn static_asset(
 /// name), so a font re-subset or re-hinted under an unchanged name would be
 /// invisible to a returning visitor until the cache expired — for up to a
 /// year, with revalidation refused even on an explicit reload. None of this
-/// repo's filenames are content-hashed yet (`jetbrains-mono-400-latin.woff2`,
+/// repo's filenames are content-hashed yet (`jetbrains-mono-var-latin.woff2`,
 /// `portfolio.js`, `portfolio.css`, …); that hashing is the real fix and is
 /// out of scope for this unit. Until then: `woff2` gets a week — long enough
 /// to spare nearly every repeat visit, short enough to bound a same-name
@@ -919,7 +919,7 @@ mod tests {
     async fn cache_control_is_keyed_by_extension() {
         for (path, expected) in [
             (
-                "/assets/fonts/jetbrains-mono-400-latin.woff2",
+                "/assets/fonts/jetbrains-mono-var-latin.woff2",
                 "public, max-age=604800",
             ),
             ("/assets/portfolio.css", "public, max-age=300"),
@@ -996,7 +996,7 @@ mod tests {
     #[tokio::test]
     async fn woff2_is_excluded_from_compression() {
         let response = response_with_headers(
-            "/assets/fonts/jetbrains-mono-400-latin.woff2",
+            "/assets/fonts/jetbrains-mono-var-latin.woff2",
             false,
             &[(header::ACCEPT_ENCODING, "gzip")],
         )
@@ -1028,7 +1028,7 @@ mod tests {
     #[tokio::test]
     async fn excluded_assets_carry_no_vary() {
         let (status, vary) =
-            header_of("/assets/fonts/jetbrains-mono-400-latin.woff2", header::VARY).await;
+            header_of("/assets/fonts/jetbrains-mono-var-latin.woff2", header::VARY).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(vary, "");
     }

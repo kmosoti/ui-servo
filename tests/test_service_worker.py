@@ -196,7 +196,7 @@ def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
         try:
             instance = playwright.chromium.launch()
-        except Exception as error:  # pragma: no cover - environment, not logic
+        except Exception as error:  # noqa: BLE001  # pragma: no cover - environment, not logic
             pytest.skip(f"chromium is not available: {error}")
         try:
             yield instance

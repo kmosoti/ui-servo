@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Read(//tmp/**)",
+      "Bash(xargs -I{} sh -c 'echo {}; cat {}')",
+      "Bash(uv python *)",
+      "Bash(mkdir -p /home/kmosoti/src/ui-servo/.claude/worktrees/agent-a441a7e2b00ec2c12/site/assets/icons && ls /home/kmosoti/src/ui-servo/.claude/worktrees/agent-a441a7e2b00ec2c12/site/assets/)",
+      "Bash(awk 'NR>=100 && NR<=180')",
+      "Bash(grep -n '```' /home/kmosoti/src/ui-servo/.claude/worktrees/agent-ae34c38149fd80556/README.md)"
+    ],
+    "additionalDirectories": [
+      "/home/kmosoti/src/ui-servo/.claude/worktrees/agent-a441a7e2b00ec2c12/site/assets"
+    ]
+  }
+}

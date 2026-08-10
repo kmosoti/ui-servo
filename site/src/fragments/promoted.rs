@@ -320,6 +320,7 @@ pub fn render_or_placeholder(
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     fn write(root: &Path, part: &str, contents: &str) {
         let dir = root.join(PROMOTED_DIR);
@@ -327,14 +328,19 @@ mod tests {
         fs::write(dir.join(format!("{part}.html")), contents).unwrap();
     }
 
+    /// A directory of this test's own.
+    ///
+    /// Named by a counter rather than a timestamp: `cargo test` runs these on
+    /// parallel threads, and two of them reading the clock closely enough to
+    /// land on the same nanosecond share a directory — whereupon one test's
+    /// `hero` is the other's fixture and the failure reads as a logic bug in
+    /// whichever lost. Seen once, under load. A counter cannot collide.
     fn temp() -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
         let base = std::env::temp_dir().join(format!(
-            "ui-servo-promoted-{}-{:?}",
+            "ui-servo-promoted-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&base).unwrap();
         base

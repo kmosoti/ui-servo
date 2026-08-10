@@ -47,9 +47,8 @@ from pathlib import Path
 import pytest
 
 sync_api = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
+from PIL import Image, ImageDraw  # noqa: E402  (Pillow is a hard project dependency)
 from playwright.sync_api import Browser, Page, sync_playwright  # noqa: E402
-
-from PIL import Image, ImageDraw  # Pillow is a hard project dependency (pyproject.toml)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE = REPO_ROOT / "site"
@@ -123,7 +122,7 @@ def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
         try:
             instance = playwright.chromium.launch()
-        except Exception as error:  # pragma: no cover - environment, not logic
+        except Exception as error:  # noqa: BLE001  # pragma: no cover - environment, not logic
             pytest.skip(f"chromium is not available: {error}")
         try:
             yield instance

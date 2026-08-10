@@ -107,7 +107,7 @@ def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
         try:
             instance = playwright.chromium.launch()
-        except Exception as error:  # pragma: no cover - environment, not logic
+        except Exception as error:  # noqa: BLE001  # pragma: no cover - environment, not logic
             pytest.skip(f"chromium is not available: {error}")
         try:
             yield instance
@@ -132,7 +132,7 @@ def browser() -> Iterator[Browser]:
 # missing/failed face is caught here, loudly, before any width or ink is read.
 MEASURE_JS = """
 async ({ spec, metric }) => {
-  const text = %s;
+  const text = __TEXT__;
   await Promise.all(spec.map(([family, weight]) =>
     document.fonts.load(weight + ' 32px "' + family + '"', text).catch(() => {})
   ));
@@ -187,7 +187,7 @@ async ({ spec, metric }) => {
   }
   return out;
 }
-""" % json.dumps(SAMPLE_TEXT)
+""".replace("__TEXT__", json.dumps(SAMPLE_TEXT))
 
 
 def measure(
@@ -224,5 +224,5 @@ def test_weights_render_pairwise_distinct(
 
     assert len(set(values)) == len(values), (
         f"{family} weights {weights} did not render pairwise-distinct {metric}: "
-        f"{dict(zip(weights, values))}"
+        f"{dict(zip(weights, values, strict=True))}"
     )

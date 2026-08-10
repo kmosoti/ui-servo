@@ -132,10 +132,13 @@ def _spawn(
         asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(server.serve())
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 — see below; the catch is the point
             # Kept, not raised: this is a thread nobody is joining yet, and a
             # traceback printed here would be all the caller ever learned about
-            # a port that was taken or an app that could not be built.
+            # a port that was taken or an app that could not be built. Narrowing
+            # this would let exactly the failures worth reporting escape into a
+            # thread with no listener, which is the bug the `failure` list exists
+            # to prevent.
             failure.append(error)
         finally:
             loop.close()

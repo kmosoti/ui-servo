@@ -42,7 +42,7 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
-tower-http = { version = "0.6", features = ["fs", "trace"] }
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "compression-br"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
@@ -52,3 +52,17 @@ tower = { version = "0.5", features = ["util"] }
 
 [profile.dev]
 debug = 1
+
+# Thin LTO, not fat: this is a small crate with a shallow dependency graph, so
+# fat LTO's whole-program optimization has little left to find here — it would
+# mostly just slow down release builds for a binary-size win close to zero.
+# Thin gets nearly all of the benefit (cross-codegen-unit inlining) in a
+# fraction of the time.
+[profile.release]
+lto = "thin"
+# "debuginfo", not `true`: this binary runs as a long-lived server on a
+# droplet, not a download artifact, so binary size barely matters but a
+# readable backtrace from a live panic does — stripping everything would
+# turn `tracing`'s panic log into bare addresses and turn "read the log"
+# into "rebuild and reproduce."
+strip = "debuginfo"

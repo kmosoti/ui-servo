@@ -83,6 +83,12 @@ pub enum StartupError {
     #[error("UI_SERVO_PORT={0:?} is not a port number")]
     BadPort(String),
 
+    /// `UI_SERVO_HOST` is set but empty, which is not a bind failure — the
+    /// bind syscall was never reached — so this is kept distinct from
+    /// [`StartupError::Bind`] rather than fabricated to fit its shape.
+    #[error("{0}")]
+    BadHost(String),
+
     #[error("cannot bind {addr}: {source}")]
     Bind {
         addr: String,

@@ -60,6 +60,17 @@ features = [
 
 # An island is a download before it is a feature. Optimise for bytes.
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = true
 codegen-units = 1
+
+# wasm-pack does not run wasm-opt unless told to. Without this table the
+# committed artefact carries a `producers` custom section naming the
+# toolchain, which the loader and the probe never read; `--strip-producers`
+# drops it, `-Oz` re-runs Binaryen's size passes on top of what LLVM already
+# did. The rustc/cargo-registry source paths `strings` still finds afterward
+# are `#[track_caller]` panic-location data baked into std/dependency call
+# sites, not name-section bloat — wasm-opt does not touch those, and this
+# island's own panic hook needs its own location string to survive anyway.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz", "--strip-debug", "--strip-producers"]

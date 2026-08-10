@@ -122,6 +122,7 @@ export interface InitOutput {
     readonly __wbg_resumesandbox_free: (a: number, b: number) => void;
     readonly constellation_draw_still: (a: number) => void;
     readonly constellation_new: (a: any, b: number) => [number, number, number];
+    readonly constellation_provoke_panic: (a: number) => void;
     readonly constellation_resize: (a: number) => void;
     readonly constellation_start: (a: number) => void;
     readonly constellation_stop: (a: number) => void;
@@ -129,13 +130,12 @@ export interface InitOutput {
     readonly live_resume_sandboxes: () => number;
     readonly mount_resume_sandbox: (a: any) => [number, number, number];
     readonly start: () => void;
-    readonly constellation_provoke_panic: (a: number) => void;
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke___f64______true_: (a: number, b: number, c: number) => void;
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke___wasm_bindgen_a2217870e4debde5___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_a2217870e4debde5___JsError___true_: (a: number, b: number, c: any) => [number, number];
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke___js_sys_4c4b8cf065ecbf05___Function_fn_wasm_bindgen_a2217870e4debde5___JsValue_____wasm_bindgen_a2217870e4debde5___sys__Undefined___js_sys_4c4b8cf065ecbf05___Function_fn_wasm_bindgen_a2217870e4debde5___JsValue_____wasm_bindgen_a2217870e4debde5___sys__Undefined_______true_: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke___web_sys_504172b18353fa11___features__gen_PointerEvent__PointerEvent______true_: (a: number, b: number, c: any) => void;
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke_______true_: (a: number, b: number) => void;
-    readonly wasm_bindgen_a2217870e4debde5___convert__closures_____invoke_______true__1_: (a: number, b: number) => void;
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke___f64______true_: (a: number, b: number, c: number) => void;
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke___wasm_bindgen_cb8c3e716f3066f___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_cb8c3e716f3066f___JsError___true_: (a: number, b: number, c: any) => [number, number];
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke___js_sys_ca09da43ac833fa1___Function_fn_wasm_bindgen_cb8c3e716f3066f___JsValue_____wasm_bindgen_cb8c3e716f3066f___sys__Undefined___js_sys_ca09da43ac833fa1___Function_fn_wasm_bindgen_cb8c3e716f3066f___JsValue_____wasm_bindgen_cb8c3e716f3066f___sys__Undefined_______true_: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke___web_sys_3be6b22c87595a7b___features__gen_PointerEvent__PointerEvent______true_: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke_______true_: (a: number, b: number) => void;
+    readonly wasm_bindgen_cb8c3e716f3066f___convert__closures_____invoke_______true__1_: (a: number, b: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

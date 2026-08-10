@@ -599,7 +599,9 @@ class PlaywrightSensor:
                     continue
                 return candidate
         except OSError as error:
-            raise SensorError(f"could not create an artefact directory under {base}: {error}")
+            raise SensorError(
+                f"could not create an artefact directory under {base}: {error}"
+            ) from error
         raise SensorError(f"more than 9999 observations of {span_id!r} in turn {turn_id!r}")
 
     def _keep_baseline(self, baseline: Path | None, observation_dir: Path) -> Path | None:

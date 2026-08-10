@@ -41,7 +41,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Final
 
-from ui_servo.domain.contract import DirectionContract
 from ui_servo.ports.sanitizer import SanitizerPort
 
 PROVENANCE_TEMPLATE: Final[str] = "<!-- ui-servo: gated round={round} sha256={digest} -->"

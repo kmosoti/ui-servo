@@ -167,7 +167,7 @@ class GateResult:
         return self.passed
 
     @classmethod
-    def ok(cls, name: GateName, detail: str = "") -> "GateResult":
+    def ok(cls, name: GateName, detail: str = "") -> GateResult:
         return cls(name=name, passed=True, detail=detail)
 
     @classmethod
@@ -176,7 +176,7 @@ class GateResult:
         name: GateName,
         detail: str,
         offenders: Sequence[Mapping[str, Any]] = (),
-    ) -> "GateResult":
+    ) -> GateResult:
         return cls(
             name=name,
             passed=False,
@@ -185,7 +185,7 @@ class GateResult:
         )
 
     @classmethod
-    def not_evaluated(cls, name: GateName, reason: str) -> "GateResult":
+    def not_evaluated(cls, name: GateName, reason: str) -> GateResult:
         return cls(name=name, passed=False, detail=reason, evaluated=False)
 
     def as_payload(self) -> dict[str, Any]:

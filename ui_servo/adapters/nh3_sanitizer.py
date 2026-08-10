@@ -572,7 +572,7 @@ def _classes_in_nested(content: Sequence[Any] | None) -> set[ClassName]:
         return set()
     try:
         parsed = tinycss2.parse_blocks_contents(content, skip_comments=True, skip_whitespace=True)
-    except Exception:  # pragma: no cover - defensive: tinycss2 should not raise
+    except Exception:  # pragma: no cover - defensive: tinycss2 should not raise  # noqa: BLE001
         return set()
     return _classes_in_rules(node for node in parsed if getattr(node, "type", "") != "declaration")
 
@@ -804,7 +804,7 @@ class Nh3Sanitizer:
                 *_attribute_violations(walker),
                 *self._span_id_violations(walker),
             ]
-        except Exception as error:  # pragma: no cover - the belt for the braces
+        except Exception as error:  # pragma: no cover - the belt for the braces  # noqa: BLE001
             return SanitizeResult.rejected(
                 (
                     Violation(
@@ -1086,17 +1086,7 @@ def _url_scheme_violations(element: _Element) -> list[Violation]:
     found: list[Violation] = []
     for name, value in element.attributes:
         for url in _urls_in(name, value):
-            try:
-                scheme = url_scheme(url)
-            except Exception as error:
-                found.append(
-                    Violation(
-                        kind=ViolationKind.DISALLOWED_URL,
-                        locator=element.locator,
-                        detail=f"{name}={url!r} could not be parsed as a URL ({type(error).__name__})",
-                    )
-                )
-                continue
+            scheme = url_scheme(url)
             if scheme is None:
                 continue
             if scheme in _DANGEROUS_SCHEMES:

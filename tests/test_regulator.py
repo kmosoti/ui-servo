@@ -28,6 +28,27 @@ from typing import Any
 
 import pytest
 
+from ui_servo.control.regulator import (
+    DEFAULT_AXE_TAGS,
+    FAILURE_KINDS,
+    GATE_AXE_CLEAN,
+    GATE_KIND,
+    GATE_MOTION_CONFORMS,
+    GATE_NO_OVERFLOW,
+    GATE_NO_RUNTIME_ERRORS,
+    GATE_NO_UNKNOWN_CLASS,
+    GATE_REDUCED_MOTION,
+    GATE_SANITIZED,
+    RENDER_DEPENDENT_GATES,
+    REQUIRED_GATES,
+    RUNTIME_ERROR_KINDS,
+    SANITIZE_KIND,
+    TASTE_FIELDS,
+    GateResult,
+    Regulator,
+    RegulatorReport,
+    with_anti_corpus,
+)
 from ui_servo.domain.contract import DirectionContract
 from ui_servo.domain.evidence import Signal, SpanEvidence
 from ui_servo.domain.variant import (
@@ -43,27 +64,6 @@ from ui_servo.domain.variant import (
 )
 from ui_servo.ports.sanitizer import SanitizeResult, Violation, ViolationKind
 from ui_servo.ports.sensor import PixelDiff, SensorReport, TraceSummary
-from ui_servo.control.regulator import (
-    DEFAULT_AXE_TAGS,
-    FAILURE_KINDS,
-    GATE_AXE_CLEAN,
-    GATE_KIND,
-    GATE_MOTION_CONFORMS,
-    GATE_NO_OVERFLOW,
-    GATE_NO_RUNTIME_ERRORS,
-    GATE_NO_UNKNOWN_CLASS,
-    GATE_REDUCED_MOTION,
-    GATE_SANITIZED,
-    REQUIRED_GATES,
-    RENDER_DEPENDENT_GATES,
-    RUNTIME_ERROR_KINDS,
-    SANITIZE_KIND,
-    TASTE_FIELDS,
-    GateResult,
-    Regulator,
-    RegulatorReport,
-    with_anti_corpus,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "blandness"

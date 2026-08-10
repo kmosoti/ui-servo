@@ -44,7 +44,33 @@ provenance, but where it and the captures disagree, **the captures win**
    The correctness fix carries over: the canvas backing store re-seeds
    whenever CSS size disagrees with it (`display:none` at boot and
    mid-session resizes otherwise render stretched at stale resolution).
-3. **BlackCell hero black hole** (owner, 2026-08-09): a 430px
+3. **The dashboard generator on `/projects/splunk-dashboard-studio`**
+   (owner ruling, 2026-08-10, verified live before this capture was
+   taken). The deep-dive gained a second half below the existing
+   single-panel compile: a drivable telemetry pipeline and a
+   **generate dashboard** button that compiles a Dashboard Studio
+   definition out of the run you just performed. `golden-sp.png` was
+   re-taken against it and is 5474px tall where it was 3450px; the
+   older capture is superseded, not lost — it is in git history.
+
+   | Dial | Value |
+   | --- | --- |
+   | Queueing model | M/M/1/K — Poisson arrivals, exponential service, bounded buffer |
+   | Service rate μ | 40 events/s, single server |
+   | Buffer | 120 events, tail-drop |
+   | Arrival λ | owner-driven, 4–70 events/s (default 26) |
+   | Tier roll | hot 5s → warm 9s → cold 14s → frozen |
+   | Generated panels | 4 at rest; a fifth (dropped events) only when a run lost data |
+   | Thresholds | derived from the observed peak ρ, not a template default |
+
+   The rig is registered as a **scene**, so it inherits the
+   canvas-energy rules: no frames in a hidden tab, one settled frame
+   under reduced motion. Treat its contents the way the margin strips
+   are treated — the model is seeded randomly and driven by the
+   viewer, so compare structure and values, never pixels, inside the
+   rig and the emitted JSON.
+
+4. **BlackCell hero black hole** (owner, 2026-08-09): a 430px
    gravitationally-lensed accretion disk (`makeBlackhole`) floats in
    the empty space right of the deep-dive title on ≥1150px viewports —
    Doppler-beamed, photon ring, lensed far-side arches, fluid sheared

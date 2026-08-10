@@ -1,0 +1,42 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request: {}
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv python install
+      - run: uv sync
+      - run: uv run pytest -q -m "not live and not playwright"
+  site:
+    runs-on: ubuntu-latest   # the export's fd-containment gate is Linux-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "site -> target" }
+      - run: cargo fmt --check
+        working-directory: site
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: site
+      - run: cargo test --locked
+        working-directory: site
+      - run: cargo run --locked --bin export -- "$RUNNER_TEMP/dist"
+        working-directory: site
+  islands:
+    # Independent cargo workspace (site/Cargo.toml excludes it) — a parallel
+    # job avoids paying its compile time as a sequential tax on the site job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "site/islands -> target" }
+      - run: cargo fmt --check
+        working-directory: site/islands
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: site/islands
+      - run: cargo test --locked
+        working-directory: site/islands

@@ -2,10 +2,14 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-harness/artifacts/
-harness/baselines/*.png
 node_modules/
 .env
+
+# Owner's scratch HTML. The golden ancestor copies it was drawn from are
+# preserved under direction/references/golden/, so nothing here is load-bearing.
+# Anchored: a bare `experiments/` would match at any depth, the same mistake
+# `evidence/` made below.
+/experiments/
 
 # U6: rust build artifacts for the site skeleton
 site/target/

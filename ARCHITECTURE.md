@@ -178,10 +178,15 @@ default), else `direction/direction.toml` in a source checkout.
 
 ## Package tree
 
+_As of 2026-08, top level._
+
 ```
 ui-servo/
+├── .github/workflows/            CI: python tests, rust tests, static export (ubuntu only)
 ├── direction/
-│   └── direction.toml            reference signal, versioned taste
+│   ├── direction.toml            reference signal, versioned taste
+│   ├── parts/                    per-unit part specs the builders work from
+│   └── references/golden/        golden reference pages the critics compare against
 ├── ui_servo/
 │   ├── domain/                   pure: no I/O, stdlib + pydantic only
 │   │   ├── contract.py           DirectionContract, MotionTable, token/class derivations
@@ -214,10 +219,13 @@ ui-servo/
 │       └── promote.py            python -m ui_servo.cli.promote
 ├── probe/probe.js                in-browser sensor runtime
 ├── site/                         axum + htmx + WASM islands — the plant
+│   ├── src/pages/                page compositions: home, about, deepdive, ...
 │   ├── src/fragments/            the gauntlet's unit of work
-│   ├── promoted/                promoted picks, outside the static root
-│   └── islands/                  wasm-bindgen crate
+│   ├── assets/                   fonts, css, js, the built islands bundle
+│   ├── promoted/                 promoted picks, outside the static root
+│   └── islands/                  wasm-bindgen crate, its own cargo workspace
 ├── demo/                         round 4, end to end, with its evidence
+├── evidence/                     committed exemplars the gauntlet skill replays in tests
 ├── tools/
 │   ├── specs/                    unit specifications
 │   └── review.sh                 adversarial review harness

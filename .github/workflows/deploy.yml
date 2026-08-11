@@ -115,31 +115,11 @@ jobs:
           rsync -az --delete --chmod=D755,F644 dist/ "$USER@$HOST:/opt/ui-servo/incoming/"
           ssh "$USER@$HOST" "ui-servo-activate $TARGET_SHA"
 
-      - name: Restart the ingest when its code changed
-        env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          USER: ${{ secrets.DEPLOY_USER }}
-        run: |
-          set -euo pipefail
-          # A shallow checkout or a root commit has no HEAD^; deploy rather
-          # than crash, because "cannot tell what changed" should fail safe
-          # toward shipping, not toward a red build.
-          if ! git rev-parse --verify --quiet HEAD^ >/dev/null; then
-            changed=ui_servo/unknown
-          else
-            changed=$(git diff --name-only HEAD^ HEAD)
-          fi
-          if grep -qE '^(ui_servo/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
-            echo "ingest changed; syncing and restarting"
-            rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
-              ui_servo pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
-            # Restarting also rotates the evidence file, because the default
-            # turn id is date-stamped and fixed at startup.
-            ssh "$USER@$HOST" ui-servo-sync-ingest
-          else
-            echo "no ingest changes; leaving the service alone"
-          fi
-
+      # Verification runs BEFORE the ingest sync, not after. Ordered the other
+      # way, an ingest failure skips it entirely and leaves the site live but
+      # unproven -- which is exactly what happened on the first real deploy,
+      # when `uv` was missing on the droplet. The site is the critical path;
+      # the ingest is a follow-on and must not be able to mask it.
       # ---- prove it -------------------------------------------------------
       # A deploy that does not check is half a deploy. Comparing the served
       # worker version against the one just built proves the symlink swap took
@@ -173,3 +153,28 @@ jobs:
           grep -qi '^content-encoding: br' <<<"$hdrs" || { echo "::error::brotli not served"; exit 1; }
           grep -qi '^strict-transport-security:' <<<"$hdrs" || { echo "::error::HSTS missing"; exit 1; }
           echo "live: version $expected, home 200, brotli and HSTS present"
+
+      - name: Restart the ingest when its code changed
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # A shallow checkout or a root commit has no HEAD^; deploy rather
+          # than crash, because "cannot tell what changed" should fail safe
+          # toward shipping, not toward a red build.
+          if ! git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            changed=ui_servo/unknown
+          else
+            changed=$(git diff --name-only HEAD^ HEAD)
+          fi
+          if grep -qE '^(ui_servo/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
+            echo "ingest changed; syncing and restarting"
+            rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
+              ui_servo pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
+            # Restarting also rotates the evidence file, because the default
+            # turn id is date-stamped and fixed at startup.
+            ssh "$USER@$HOST" ui-servo-sync-ingest
+          else
+            echo "no ingest changes; leaving the service alone"
+          fi

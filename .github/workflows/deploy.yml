@@ -168,10 +168,14 @@ jobs:
           else
             changed=$(git diff --name-only HEAD^ HEAD)
           fi
-          if grep -qE '^(ui_servo/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
+          if grep -qE '^(ui_servo/|probe/|direction/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
             echo "ingest changed; syncing and restarting"
+            # probe/ and direction/ are not optional extras: pyproject
+            # force-includes probe/probe.js and direction/direction.toml into
+            # the wheel, so an editable install without them dies with
+            # "Forced include not found" and the ingest never gets a venv.
             rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
-              ui_servo pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
+              ui_servo probe direction pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
             # Restarting also rotates the evidence file, because the default
             # turn id is date-stamped and fixed at startup.
             ssh "$USER@$HOST" ui-servo-sync-ingest

@@ -110,7 +110,7 @@ emptied=$(docker exec "$NAME" sh -c 'ls -A /opt/ui-servo/incoming | wc -l')
 check "incoming/ is emptied for the next deploy" "$emptied" "0"
 
 timeout 120 rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
-	ui_servo pyproject.toml uv.lock "deploy@127.0.0.1:/opt/ui-servo/app/" >/dev/null 2>&1 \
+	ui_servo probe direction pyproject.toml uv.lock "deploy@127.0.0.1:/opt/ui-servo/app/" >/dev/null 2>&1 \
 	&& ok "rsync of the ingest app is allowed" || bad "rsync into app/ was refused"
 
 # Rollback: nothing staged, but the release is still on disk.

@@ -254,10 +254,10 @@ fn print_resume_doc() -> Markup {
             (h("Selected Projects"))
             div style="margin-bottom:12pt; color:#333;" {
                 div style="margin-bottom:3pt;" { strong { "BlackCell" } " (pre-alpha) — Local-first, evidence-gated control runtime for coding agents. Bounded retries, isolated worktrees, append-only evidence in SQLite." }
-                div style="margin-bottom:3pt;" { strong { "splunk-dashboard-studio" } " (alpha) — Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4–10.4, differential validation against Splunk's official validator." }
-                div style="margin-bottom:3pt;" { strong { "Kernform" } " (alpha) — Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI." }
+                div style="margin-bottom:3pt;" { strong { "splunk-dashboard-studio" } " (pre-alpha) — Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4–10.4, differential validation against Splunk's official validator." }
+                div style="margin-bottom:3pt;" { strong { "Kernform" } " (pre-alpha) — Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI." }
                 div style="margin-bottom:3pt;" { strong { "PraxisLedger" } " — Provenance and temporal knowledge graph. SQLite + Rust + Python." }
-                div style="margin-bottom:3pt;" { strong { "SAI" } " (shipped) — Agent routing modeled on brain-network dynamics; episodic/semantic memory, async consolidation loop." }
+                div style="margin-bottom:3pt;" { strong { "SAI" } " (pre-alpha) — Agent routing modeled on brain-network dynamics; episodic/semantic memory, async consolidation loop." }
                 div { strong { "learning-os" } " — Adaptive personal-learning app. FastAPI + SQLAlchemy." }
             }
 

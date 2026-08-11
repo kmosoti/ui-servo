@@ -179,6 +179,17 @@ EOF
 ln -sfn /opt/ui-servo/releases/bootstrap /opt/ui-servo/current
 chown -h deploy:deploy /opt/ui-servo/current
 
+# --- 5b. uv ----------------------------------------------------------------
+# ui-servo-sync-ingest runs `uv sync --frozen`, and the deploy job calls it
+# over ssh -- a non-login shell with a bare PATH. Installing to /usr/local/bin
+# rather than a user's ~/.local/bin is what makes it findable there; without
+# this the site deploys fine and the ingest step dies with "uv: not found",
+# which is how it was discovered.
+if ! command -v uv >/dev/null 2>&1; then
+	curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+fi
+/usr/local/bin/uv --version
+
 # --- 6. caddy --------------------------------------------------------------
 # The standard package has no rate limiter, so take the build with the plugin
 # compiled in. Pinned by version, not "latest", so a rebuild is a decision.

@@ -1,0 +1,132 @@
+# /etc/caddy/Caddyfile — ui-servo edge, STATIC EXPORT (recommended)
+#
+# Serves `cargo run --bin export` output directly. This is the shape that has
+# a working service worker: the exporter stamps sw.js with a real fingerprint,
+# where the axum origin hard-codes the version to "dev" on purpose and the
+# worker then refuses to cache anything.
+#
+#   production : SITE_ADDRESS=mosoti.dev, www.mosoti.dev
+#   local test : SITE_ADDRESS=localhost:8445
+{
+	admin off
+	http_port {$HTTP_PORT:80}
+	email {$ACME_EMAIL:admin@mosoti.dev}
+	order rate_limit before reverse_proxy
+
+	servers {
+		max_header_size 16KB
+		timeouts {
+			read_body 10s
+			read_header 5s
+			write 30s
+			idle 2m
+		}
+	}
+}
+
+{$SITE_ADDRESS:mosoti.dev} {
+	log {
+		output file {$CADDY_LOG:/var/log/caddy/ui-servo.log} {
+			roll_size 10MB
+			roll_keep 5
+			roll_keep_for 336h
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+		-Server
+	}
+
+	# Written order, not Caddy's directive precedence. See the note in the
+	# proxy Caddyfile: without `route`, a catch-all handler silently outranks
+	# every refusal above it.
+	route {
+		@bad_method not method GET HEAD POST
+		respond @bad_method "method not allowed" 405
+
+		@probes path /wp-admin* /wp-login.php /xmlrpc.php /.env* /.git/* /.aws/* /vendor/* /phpmyadmin* /phpinfo.php /server-status /actuator/* /.ssh/* /config.json /telescope*
+		respond @probes "not found" 404
+
+		@ai_crawlers header_regexp User-Agent "(?i)(GPTBot|ChatGPT-User|OAI-SearchBot|CCBot|ClaudeBot|anthropic-ai|Claude-Web|Bytespider|Amazonbot|FacebookBot|meta-externalagent|Diffbot|ImagesiftBot|Omgilibot|PerplexityBot|Applebot-Extended|cohere-ai)"
+		respond @ai_crawlers "no" 403
+
+		rate_limit {
+			zone beacon {
+				match {
+					method POST
+					path /beacon*
+				}
+				key {remote_host}
+				events {$RL_BEACON:6}
+				window 1m
+			}
+			zone browse {
+				key {remote_host}
+				events {$RL_BROWSE:240}
+				window 1m
+			}
+		}
+
+		handle /beacon* {
+			request_body {
+				# 8KB, not 32KB: a real probe batch is a kilobyte or two, and
+				# the store amplifies 10.2x, so this cap is the main lever on
+				# how fast a hostile client can fill a 10 GB disk.
+				max_size {$BEACON_MAX_BODY:8KB}
+			}
+			reverse_proxy {$INGEST_ORIGIN:127.0.0.1:8111} {
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		handle {
+			root * {$SITE_ROOT:/opt/ui-servo/current}
+
+			# The whole cache policy, which the static host has to supply
+			# because there is no origin left to set headers.
+			@immutable path /assets/fonts/*
+			header @immutable Cache-Control "public, max-age=604800"
+
+			@assets path /assets/*
+			header @assets Cache-Control "public, max-age=300"
+
+			# A worker outlives the page that registered it, so a cached copy
+			# would keep serving a version of the site that was replaced an
+			# hour ago — from behind the very cache that hides the staleness.
+			@sw path /sw.js
+			header @sw Cache-Control "no-store"
+
+			@docs path / *.html /about/* /projects/* /writing/*
+			header @docs Cache-Control "no-cache"
+
+			# `br` is missing from this list on purpose: Caddy's standard
+			# build registers http.precompressed.br but NOT http.encoders.br,
+			# so it can serve brotli it was handed and cannot produce brotli
+			# itself. `encode zstd br gzip` does not fail at startup — it
+			# fails at config-adapt time with "module not registered".
+			encode zstd gzip
+
+			file_server {
+				# Serve the .br written by precompress.py when the client
+				# accepts it: quality 11 instead of the on-the-fly default,
+				# and no compression CPU per request at all.
+				precompressed br zstd gzip
+				index index.html
+			}
+		}
+	}
+
+	handle_errors {
+		@notfound expression {err.status_code} == 404
+		rewrite @notfound /404.html
+		file_server
+	}
+}

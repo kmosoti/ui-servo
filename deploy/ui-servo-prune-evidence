@@ -1,0 +1,60 @@
+#!/bin/sh
+# Prune the beacon evidence stock by age, then by total size.
+#
+# Why this is not optional: POST /beacon is unauthenticated by design -- the
+# probe is fire-and-forget and has no credential to offer. Caddy caps a body at
+# 32 KB and a client at 12 writes a minute, but the cap that matters is the one
+# on *stored* bytes, and there the arithmetic is unkind. A 32 761-byte body
+# carries 2 520 events; the router truncates the batch at MAX_EVENTS and stores
+# 2 000 of them as 268 890 bytes of JSONL. That is 8.2x write amplification, so
+# one IP sitting exactly on the rate limit writes ~4.3 GiB a day. A 25 GB
+# droplet disk is gone inside a week, and a full disk stops the site, not just
+# the ingest.
+#
+# Age first, then size, because age is the policy and size is the backstop.
+set -eu
+
+ROOT="${UI_SERVO_INGEST_ROOT:-/var/lib/ui-servo}"
+DIR="$ROOT/evidence"
+RETAIN_DAYS="${UI_SERVO_EVIDENCE_DAYS:-14}"
+MAX_MB="${UI_SERVO_EVIDENCE_MAX_MB:-512}"
+
+[ -d "$DIR" ] || { echo "no evidence directory at $DIR; nothing to do"; exit 0; }
+
+before=$(du -sm "$DIR" | cut -f1)
+
+# 1. Age. The active file is the one with today's stamp and is far younger than
+#    any retention window worth setting, so it is never a candidate here.
+aged=0
+# Read from a temp file rather than looping over unquoted `find` output (which
+# word-splits on spaces) or piping into `while` (which would run the loop in a
+# subshell and lose the counter). Not -print0: this is /bin/sh, and `read -d`
+# is a bashism. Turn ids are validated as [A-Za-z0-9._-] before they ever
+# become filenames, so a newline in one is not reachable.
+listing=$(mktemp)
+trap 'rm -f "$listing"' EXIT INT TERM
+find "$DIR" -maxdepth 1 -name '*.jsonl' -mtime "+$RETAIN_DAYS" -print > "$listing"
+while IFS= read -r f; do
+	[ -n "$f" ] || continue
+	rm -f "$f"
+	aged=$((aged + 1))
+	echo "aged out: $(basename "$f")"
+done < "$listing"
+
+# 2. Size. Oldest first until the stock is under the ceiling. Never delete the
+#    newest file: with one file per service restart, that is the one being
+#    appended to right now, and removing it under the writer buys nothing --
+#    the open descriptor keeps the blocks allocated until the process exits.
+trimmed=0
+while [ "$(du -sm "$DIR" | cut -f1)" -gt "$MAX_MB" ]; do
+	oldest=$(find "$DIR" -maxdepth 1 -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)
+	count=$(find "$DIR" -maxdepth 1 -name '*.jsonl' | wc -l)
+	[ "$count" -le 1 ] && { echo "at ceiling with one file left ($oldest); not removing the active stock"; break; }
+	[ -z "$oldest" ] && break
+	rm -f "$oldest"
+	trimmed=$((trimmed + 1))
+	echo "over ceiling, removed: $(basename "$oldest")"
+done
+
+after=$(du -sm "$DIR" | cut -f1)
+echo "evidence prune: ${before}MB -> ${after}MB (ceiling ${MAX_MB}MB, retain ${RETAIN_DAYS}d, aged ${aged}, trimmed ${trimmed})"

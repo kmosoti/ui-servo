@@ -1,0 +1,12 @@
+#!/bin/sh
+# Re-resolve the ingest's dependencies and retire the running worker.
+#
+# `stop`, not `restart`: the backend is socket-activated, so the next beacon
+# starts it again with the new code. Restarting would leave a process running
+# that nobody is talking to -- and started by hand it is no longer "unneeded",
+# so StopWhenUnneeded would not reap it and it would sit there holding 80 MB.
+set -eu
+cd /opt/ui-servo/app
+uv sync --frozen
+sudo /usr/bin/systemctl stop ui-servo-ingest-backend.service
+echo "ingest updated; next beacon will start it (cold start ~1.3s)"

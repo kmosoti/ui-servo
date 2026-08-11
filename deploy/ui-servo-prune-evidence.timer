@@ -1,0 +1,15 @@
+# /etc/systemd/system/ui-servo-prune-evidence.timer
+[Unit]
+Description=Prune ui-servo beacon evidence daily
+
+[Timer]
+# Hourly, not daily: on a 10 GB disk the worst case between runs is what
+# matters, and hourly caps that at ~28 MB instead of ~0.67 GiB.
+OnCalendar=hourly
+# A droplet that was powered off must still prune on the next boot; the
+# ceiling is a disk-exhaustion guard and a missed run is the case it exists for.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

@@ -12,6 +12,10 @@ jobs:
       - run: uv python install
       - run: uv sync
       - run: uv run pytest -q -m "not live and not playwright"
+      # The deployment reference is generated from the Caddyfile, the units and
+      # the ingest source. This fails if any of those moved without the doc
+      # being regenerated -- which is exactly how the runbook went stale.
+      - run: uv run python deploy/gen-reference.py --check
   site:
     runs-on: ubuntu-latest   # the export's fd-containment gate is Linux-only
     steps:
@@ -26,6 +30,17 @@ jobs:
         working-directory: site
       - run: cargo run --locked --bin export -- "$RUNNER_TEMP/dist"
         working-directory: site
+  deploy-path:
+    # The deploy is the least-tested code in the repo and the only code that
+    # runs as a privileged account on a live host. This boots a droplet-shaped
+    # container and runs the exact rsync/ssh commands from deploy.yml through a
+    # real sshd applying the real `restrict,command=` line -- so a change to
+    # the gate, the activate script, or the workflow's invocation fails here
+    # rather than at the moment of a deploy.
+    runs-on: ubuntu-latest   # docker is preinstalled on the GitHub runner
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./deploy/e2e-deploy-test.sh
   islands:
     # Independent cargo workspace (site/Cargo.toml excludes it) — a parallel
     # job avoids paying its compile time as a sequential tax on the site job.

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Promote /opt/ui-servo/incoming to releases/<sha> and make it live.
+#
+# Split out from the CI job so the deploy key can be pinned to a forced
+# command: the runner asks for a named verb with a hex argument instead of
+# being handed a shell. It is also the rollback tool — pass an older sha that
+# is still on disk and it re-points the symlink without a rebuild.
+set -eu
+
+SHA="${1:?usage: ui-servo-activate <sha>}"
+case "$SHA" in
+	"" | *[!0-9a-fA-F]*) echo "sha must be hex" >&2; exit 2 ;;
+esac
+
+ROOT=/opt/ui-servo
+REL="$ROOT/releases/$SHA"
+KEEP=5
+
+if [ -d "$ROOT/incoming" ] && [ -n "$(ls -A "$ROOT/incoming" 2>/dev/null)" ]; then
+	rm -rf "$REL"
+	mv "$ROOT/incoming" "$REL"
+	mkdir -p "$ROOT/incoming"
+elif [ -d "$REL" ]; then
+	# Rollback: nothing staged, but this release is still on disk.
+	echo "no staged upload; re-pointing at existing release $SHA"
+else
+	echo "nothing staged in $ROOT/incoming and no release $SHA on disk" >&2
+	exit 3
+fi
+
+# rename(2) is atomic. `ln -sfn` onto an existing symlink is not, and a
+# request landing inside that window can 404.
+ln -sfn "$REL" "$ROOT/current.tmp"
+mv -T "$ROOT/current.tmp" "$ROOT/current"
+
+# Keep the last few so a rollback needs no rebuild.
+ls -1dt "$ROOT"/releases/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -rf
+
+echo "live: $(readlink "$ROOT/current")"

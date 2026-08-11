@@ -45,10 +45,59 @@ a:hover { color: #ffa077; }
 
 /* BlackCell hero black hole (owner, 2026-08-09): lives in the empty space
  * right of the deep-dive title/lede on wide screens; the header text is in
- * normal flow and paints above the canvas. Hidden where it would crowd. */
+ * normal flow and paints above the canvas.
+ *
+ * Owner ruling 2026-08-10: it must survive on mobile. It is now always drawn;
+ * only its size and placement change. Below 1150px there is no empty space to
+ * put it in, so it sits BEHIND the header text instead of beside it — pushed
+ * up and dimmed so the type stays legible over it. `pointer-events:none` and
+ * the z-order already guarantee it cannot intercept a tap. */
 .pf-bh {
   position: absolute; top: -150px; right: -34px;
   width: 430px; height: 430px;
-  pointer-events: none; display: none;
+  pointer-events: none; display: block;
 }
-@media (min-width: 1150px) { .pf-bh { display: block; } }
+@media (max-width: 1149px) {
+  .pf-bh {
+    top: -110px; right: -90px;
+    width: 320px; height: 320px;
+    opacity: .55;
+  }
+}
+@media (max-width: 620px) {
+  .pf-bh {
+    top: -86px; right: -76px;
+    width: 240px; height: 240px;
+    opacity: .45;
+  }
+}
+
+/* ---- small screens ---------------------------------------------------- *
+ * The port arrived with exactly one width breakpoint (min-width:1150px, for
+ * the black hole), so every layout below was desktop geometry scaled down.
+ * These rules add the small-screen cases; nothing here changes the wide
+ * layout, so the golden captures at 1920 are unaffected. */
+
+@media (max-width: 900px) {
+  /* The header used to wrap into three ragged rows about 290px tall — which
+   * is worse than not being sticky at all, because a sticky element that
+   * eats a third of the viewport follows you down the page. Two clean rows:
+   * brand and résumé, then the routes as one horizontally scrollable strip. */
+  .pf-header { gap: 10px; padding-top: 10px; padding-bottom: 10px; }
+  .pf-nav {
+    order: 3; flex-basis: 100%;
+    flex-wrap: nowrap; overflow-x: auto; gap: 2px;
+    scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .pf-nav::-webkit-scrollbar { display: none; }
+
+  /* The role rows put company, dates and chevron on one line; at 390px the
+   * dates get about nine characters. Stack them and let the date sit under
+   * the role, where it has the full width. */
+  .pf-job-head { flex-wrap: wrap; gap: 6px 12px; padding: 15px 16px; }
+  .pf-job-when { order: 3; flex-basis: 100%; }
+
+  /* 72px of breathing room above the hero is right at 1440px and absurd at
+   * 390px, where it put the first line of real content below the fold. */
+  .pf-hero { padding-top: 28px !important; padding-bottom: 32px !important; }
+}

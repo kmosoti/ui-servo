@@ -286,7 +286,13 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       var m = Math.min(W, H), rsh = m * SHADOW;
       var rIn = rsh * 1.35, rMax = m * 0.5 - 8;
-      parts = Array.from({ length: 320 }, function () { return spawn(rIn, rMax, true); });
+      // 320 was tuned for the 430px desktop canvas. The mobile breakpoints
+      // (2026-08-10) render the same disk at 320px and 240px, where the full
+      // count is both invisible and wasteful on a phone battery — scale with
+      // area so density reads the same. At m=430 this is exactly 320, so the
+      // desktop rendering is bit-identical to before.
+      var count = Math.max(120, Math.round(320 * (m * m) / (430 * 430)));
+      parts = Array.from({ length: count }, function () { return spawn(rIn, rMax, true); });
     }
     size();
     function draw(dt, still) {

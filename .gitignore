@@ -34,3 +34,9 @@ evidence/
 # Store bookkeeping, not evidence.
 .lock
 .seq
+
+# Generated deploy artefacts: contain real keys and addresses.
+cloud-init.generated.sh
+ci_deploy
+ci_deploy.pub
+dist/

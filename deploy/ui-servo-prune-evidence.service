@@ -1,0 +1,18 @@
+# /etc/systemd/system/ui-servo-prune-evidence.service
+[Unit]
+Description=Prune ui-servo beacon evidence
+
+[Service]
+Type=oneshot
+User=ui-servo
+Group=ui-servo
+Environment=UI_SERVO_INGEST_ROOT=/var/lib/ui-servo
+Environment=UI_SERVO_EVIDENCE_DAYS=7
+Environment=UI_SERVO_EVIDENCE_MAX_MB=256
+ExecStart=/usr/local/bin/ui-servo-prune-evidence
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ui-servo

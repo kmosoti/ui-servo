@@ -1,0 +1,175 @@
+# Deploy to the droplet, gated on ci.yml passing for the same commit.
+#
+# A separate workflow rather than a job in ci.yml, because ci.yml runs on
+# pull_request too and a deploy job there would be permanently skipped noise.
+# `workflow_run` gives the gate without that: this cannot start until ci has
+# concluded, and the `success()` check means a red suite never ships.
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  # Re-run a deploy without pushing — used for rollback (see deploy/README).
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA to deploy
+        required: false
+
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
+# Two deploys overlapping would race the symlink swap. Queue instead of
+# cancelling: a half-finished rsync that got cancelled is the one state worse
+# than a slow deploy.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # Add required reviewers to this environment in repo settings to make
+    # production a manual gate rather than an automatic one.
+    environment: production
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # workflow_run does not check out the triggering commit by default;
+          # without this the deploy would ship whatever main points at now,
+          # which is not necessarily the commit that passed ci.
+          ref: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: site -> target
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+
+      # ---- build the artifact ------------------------------------------
+      # The static export, not the binary: the exporter stamps sw.js with a
+      # real fingerprint, where the axum origin hard-codes "dev" and the
+      # worker then caches nothing. Offline capability only exists here.
+      - name: Export the site
+        working-directory: site
+        run: cargo run --locked --release --bin export -- "$GITHUB_WORKSPACE/dist"
+
+      # Quality 11 once, here, instead of on every request forever. Caddy can
+      # serve .br but cannot produce it.
+      - name: Precompress
+        run: uv run --with brotli python deploy/precompress.py dist
+
+      - name: Record the version being shipped
+        id: build
+        run: |
+          version=$(sed -n "s/^var VERSION = '\(.*\)';/\1/p" dist/sw.js)
+          [ -n "$version" ] || { echo "::error::no VERSION stamped in dist/sw.js"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "shipping service worker version $version"
+
+      # ---- authorise ----------------------------------------------------
+      - name: Authorise SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY"     > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # A pinned host key, not ssh-keyscan. Scanning at deploy time trusts
+          # whatever answers on the day, which is trust-on-first-use repeated
+          # every run -- an open MITM window on a channel holding a deploy key.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # ---- ship ----------------------------------------------------------
+      - name: Ship the release
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          # Through the environment, never interpolated into the script body.
+          # `inputs.ref` is operator-supplied on workflow_dispatch, and a
+          # ${{ }} expansion inside `run:` is textual substitution before the
+          # shell ever sees it -- on a job holding the deploy key, that is
+          # remote code execution wearing a rollback button.
+          TARGET_SHA: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_SHA" in
+            "" | *[!0-9a-fA-F]* )
+              echo "::error::ref must be a hex commit sha, got '$TARGET_SHA'"; exit 1 ;;
+          esac
+          # Upload to a fixed staging directory, then ask for a named verb.
+          # The deploy key is pinned to a forced command that allows exactly
+          # this rsync destination and this verb, so the runner never has a
+          # shell on the droplet even if this job is compromised.
+          rsync -az --delete --chmod=D755,F644 dist/ "$USER@$HOST:/opt/ui-servo/incoming/"
+          ssh "$USER@$HOST" "ui-servo-activate $TARGET_SHA"
+
+      - name: Restart the ingest when its code changed
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # A shallow checkout or a root commit has no HEAD^; deploy rather
+          # than crash, because "cannot tell what changed" should fail safe
+          # toward shipping, not toward a red build.
+          if ! git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            changed=ui_servo/unknown
+          else
+            changed=$(git diff --name-only HEAD^ HEAD)
+          fi
+          if grep -qE '^(ui_servo/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
+            echo "ingest changed; syncing and restarting"
+            rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
+              ui_servo pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
+            # Restarting also rotates the evidence file, because the default
+            # turn id is date-stamped and fixed at startup.
+            ssh "$USER@$HOST" ui-servo-sync-ingest
+          else
+            echo "no ingest changes; leaving the service alone"
+          fi
+
+      # ---- prove it -------------------------------------------------------
+      # A deploy that does not check is half a deploy. Comparing the served
+      # worker version against the one just built proves the symlink swap took
+      # effect, which a plain 200 does not.
+      - name: Verify the live site
+        env:
+          SITE_URL: ${{ secrets.DEPLOY_SITE_URL }}
+          EXPECTED: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Unset during the initial migration: the domain still points at the
+          # old host, so verifying against it would either pass for the wrong
+          # reason or fail a deploy that actually worked. Set it after cutover.
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "::notice::DEPLOY_SITE_URL is unset — skipping live verification"
+            exit 0
+          fi
+          expected="$EXPECTED"
+          for attempt in 1 2 3 4 5; do
+            live=$(curl -fsS --max-time 15 "$SITE_URL/sw.js" | sed -n "s/^var VERSION = '\(.*\)';/\1/p" || true)
+            [ "$live" = "$expected" ] && break
+            echo "attempt $attempt: served '$live', expected '$expected'"
+            sleep 3
+          done
+          [ "$live" = "$expected" ] || { echo "::error::live sw.js is '$live', expected '$expected'"; exit 1; }
+
+          code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 15 "$SITE_URL/")
+          [ "$code" = 200 ] || { echo "::error::home page returned $code"; exit 1; }
+
+          hdrs=$(curl -fsS -D- -o /dev/null --max-time 15 -H 'Accept-Encoding: br' "$SITE_URL/assets/portfolio.js")
+          grep -qi '^content-encoding: br' <<<"$hdrs" || { echo "::error::brotli not served"; exit 1; }
+          grep -qi '^strict-transport-security:' <<<"$hdrs" || { echo "::error::HSTS missing"; exit 1; }
+          echo "live: version $expected, home 200, brotli and HSTS present"

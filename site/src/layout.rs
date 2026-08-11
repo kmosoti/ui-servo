@@ -156,9 +156,15 @@ pub fn portfolio_shell(state: &AppState, meta: PageMeta<'_>, body: Markup) -> Ma
     }
 }
 
-/// The sticky header: brand dot, route nav, direction toggle, motion toggle,
-/// résumé menu. Active-state colours are server-rendered for the current
-/// route; portfolio.js only touches the toggles.
+/// The sticky header: brand dot, route nav, résumé menu. Active-state colours
+/// are server-rendered for the current route; portfolio.js only touches the
+/// toggles.
+///
+/// The motion toggle was removed by owner ruling 2026-08-10. Reduced motion
+/// still works — `portfolio.js` reads `prefers-reduced-motion` and a stored
+/// `pf-reduced` key, and null-guards the button it no longer finds — so the
+/// behaviour is now driven by the OS preference rather than a control that
+/// cost a header slot on every page and wrapped to its own line on mobile.
 fn portfolio_header(route: &str) -> Markup {
     let nav_style = |here: bool| {
         if here {
@@ -168,18 +174,17 @@ fn portfolio_header(route: &str) -> Markup {
         }
     };
     html! {
-        header data-print-hide="1" style="position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:14px clamp(20px,4vw,44px); background:rgba(8,9,11,.86); backdrop-filter:blur(16px); border-bottom:1px solid #1b1f24;" {
-            a href="/" style="display:flex; align-items:center; gap:10px; color:#ece7dd; font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; letter-spacing:.06em; text-decoration:none;" {
-                span style="width:7px; height:7px; border-radius:50%; background:#ff7a45; box-shadow:0 0 10px 2px rgba(255,122,69,.55);" {}
+        header class="pf-header" data-print-hide="1" style="position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:24px; padding:14px clamp(20px,4vw,44px); background:rgba(8,9,11,.86); backdrop-filter:blur(16px); border-bottom:1px solid #1b1f24;" {
+            a class="pf-brand" href="/" style="display:flex; align-items:center; gap:11px; color:#ece7dd; font-family:'JetBrains Mono',monospace; font-size:17px; font-weight:700; letter-spacing:.08em; text-decoration:none;" {
+                span style="width:9px; height:9px; border-radius:50%; background:#ff7a45; box-shadow:0 0 12px 3px rgba(255,122,69,.55);" {}
                 "KM"
             }
-            nav aria-label="Primary" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;" {
+            nav class="pf-nav" aria-label="Primary" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;" {
                 a class="pf-hover-text" href="/" style=(nav_style(route == "/")) { "profile" }
                 a class="pf-hover-text" href="/projects/blackcell" style=(nav_style(route == "/projects/blackcell")) { "blackcell" }
                 a class="pf-hover-text" href="/projects/splunk-dashboard-studio" style=(nav_style(route == "/projects/splunk-dashboard-studio")) { "dashboard-studio" }
             }
-            div style="display:flex; align-items:center; gap:10px;" {
-                button id="pf-motion" title="reduced motion" style="padding:6px 10px; border:1px solid #24282e; border-radius:5px; cursor:pointer; background:transparent; font-family:'JetBrains Mono',monospace; font-size:11px; color:#ff7a45;" { "motion on" }
+            div class="pf-header-actions" style="display:flex; align-items:center; gap:10px;" {
                 div style="position:relative;" {
                     button id="pf-resume-btn" style="padding:6px 12px; border:1px solid #ff7a45; border-radius:5px; cursor:pointer; background:rgba(255,122,69,.1); font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:#ff7a45;" { "résumé ↓" }
                     div id="pf-resume-menu" style="position:absolute; top:38px; right:0; width:230px; padding:6px; border:1px solid #24282e; border-radius:6px; background:#101215; box-shadow:0 18px 40px rgba(0,0,0,.6); display:none;" {

@@ -1,0 +1,22 @@
+# /etc/systemd/system/ui-servo-ingest.service
+#
+# The socket-activated front half: a proxy that starts the backend on demand
+# and exits when the traffic stops, which takes the backend with it.
+[Unit]
+Description=ui-servo beacon ingest (socket proxy)
+Requires=ui-servo-ingest-backend.service
+After=ui-servo-ingest-backend.service
+
+[Service]
+# --exit-idle-time is what makes this worth doing: without it the proxy lives
+# forever and so does the backend it requires.
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=5min 127.0.0.1:8112
+# One connection per beacon, and the browser does not pipeline them.
+ExecStartPre=/bin/true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=32M
+TasksMax=16

@@ -1,0 +1,72 @@
+# /etc/systemd/system/ui-servo-ingest-backend.service
+#
+# The application itself. Never started directly in production -- the proxy
+# pulls it up, and StopWhenUnneeded lets it go again.
+[Unit]
+Description=ui-servo beacon ingest (application)
+# [Unit], not [Service]. systemd logs "Unknown key name ... ignoring" for the
+# wrong section and carries on, so the service simply never stops and the
+# whole point of socket activation is silently lost.
+StopWhenUnneeded=yes
+
+[Service]
+Type=exec
+User=ui-servo
+Group=ui-servo
+WorkingDirectory=/opt/ui-servo/app
+
+# The one variable with no default. The app refuses to start without it, and
+# refuses a path ending in /evidence -- the store appends that itself.
+Environment=UI_SERVO_INGEST_ROOT=/var/lib/ui-servo
+# Omit UI_SERVO_INGEST_TURN to get prod-YYYY-MM-DD, which rotates the JSONL
+# file on restart and gives the prune timer something with an age.
+
+ExecStart=/opt/ui-servo/app/.venv/bin/granian \
+    --interface asgi --factory \
+    ui_servo.adapters.beacon_ingest.app:create_app \
+    --host 127.0.0.1 --port 8112 \
+    --workers 1 --backlog 128 \
+    --workers-max-rss 96
+
+# granian does not implement sd_notify, so without this the proxy can forward a
+# connection to a port nothing is listening on yet and the first beacon after
+# an idle period fails.
+ExecStartPost=/bin/sh -c 'until curl -sf -o /dev/null http://127.0.0.1:8112/beacon/health; do sleep 0.1; done'
+
+Restart=on-failure
+RestartSec=2s
+
+# --- sandbox ---------------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/var/lib/ui-servo
+
+# --- resource ceilings -----------------------------------------------------
+# Measured working set is 76-84 MB. MemoryHigh must sit ABOVE that: set below
+# the working set it does not shrink the process, it wedges it in permanent
+# reclaim and the service never finishes starting. 96M gives it room and still
+# bites on genuine growth; 128M is the hard stop.
+MemoryHigh=96M
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=24
+# The site is what visitors are waiting for. Telemetry yields to it.
+CPUWeight=20
+CPUQuota=40%
+
+# No [Install]: this is pulled up by the proxy, never enabled on its own.

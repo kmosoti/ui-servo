@@ -1,0 +1,70 @@
+#!/bin/sh
+# Forced command for the CI deploy key.
+#
+# A deploy key that can run arbitrary commands is a shell on the droplet that
+# lives in a CI secret store. This narrows it to exactly what a deploy needs:
+# rsync into two fixed directories, and three named verbs. Everything else is
+# refused and logged, including the interactive shell you get by default.
+#
+# Wired up in ~deploy/.ssh/authorized_keys as:
+#   restrict,command="/usr/local/bin/ui-servo-ssh-gate" ssh-ed25519 AAAA... ci-deploy
+#
+# `restrict` removes port forwarding, agent forwarding, X11 and pty allocation;
+# `command=` replaces whatever the client asked for with this script, passing
+# the original request in $SSH_ORIGINAL_COMMAND for inspection.
+set -eu
+
+CMD="${SSH_ORIGINAL_COMMAND:-}"
+INCOMING=/opt/ui-servo/incoming
+APP=/opt/ui-servo/app
+
+deny() {
+	# Logged, because a refusal here is either a broken deploy or an intrusion,
+	# and the two are worth being able to tell apart afterwards.
+	logger -t ui-servo-ssh-gate "refused from ${SSH_CLIENT%% *}: ${CMD}"
+	echo "refused: this key may not run that" >&2
+	exit 1
+}
+
+case "$CMD" in
+	# ---- rsync, and only as a server writing into a known directory --------
+	"rsync --server "*)
+		# -e/--rsh in a server invocation is how a restricted rsync gets talked
+		# into spawning a shell. There is never a reason for it here.
+		case "$CMD" in
+			*" -e "* | *--rsh* | *";"* | *"&"* | *'|'* | *'$('* | *'`'*) deny ;;
+		esac
+		# The destination is the last token and must be one of ours.
+		dest=${CMD##* }
+		case "$dest" in
+			"$INCOMING" | "$INCOMING/" | "$APP" | "$APP/") ;;
+			*) deny ;;
+		esac
+		exec $CMD
+		;;
+
+	# ---- the three verbs a deploy needs ------------------------------------
+	"ui-servo-activate "*)
+		sha=${CMD#ui-servo-activate }
+		# A release name becomes a directory name. Hex only.
+		case "$sha" in
+			"" | *[!0-9a-fA-F]*) deny ;;
+		esac
+		exec /usr/local/bin/ui-servo-activate "$sha"
+		;;
+
+	"ui-servo-sync-ingest")
+		exec /usr/local/bin/ui-servo-sync-ingest
+		;;
+
+	"ui-servo-releases")
+		# An unmatched glob makes `ls` exit 2, which a caller reads as a failed
+		# deploy rather than "no releases yet". Empty is a valid answer.
+		ls -1dt /opt/ui-servo/releases/*/ 2>/dev/null || true
+		exit 0
+		;;
+
+	*)
+		deny
+		;;
+esac

@@ -1,0 +1,161 @@
+{
+  "_comment": [
+    "Measured values quoted by the deployment docs. Kept here rather than in prose",
+    "so a number appears in exactly one place and the reference is generated from it.",
+    "Every entry records how it was obtained, because a figure whose method is lost",
+    "cannot be re-checked and quietly becomes folklore.",
+    "Re-run deploy/gen-reference.py after editing."
+  ],
+  "measured_on": "2026-08-10",
+  "tier": {
+    "slug": "s-1vcpu-512mb-10gb",
+    "vcpu": 1,
+    "ram_mb": 512,
+    "disk_gb": 10,
+    "transfer_gb": 500,
+    "model": "systemd-run --scope -p CPUQuota=100% -p MemoryMax=390M -p MemorySwapMax=0",
+    "model_note": "390M = 512 MB less roughly 120 MB of OS. DO droplets ship swapless."
+  },
+  "throughput_rps": {
+    "_method": "16 keep-alive connections, 8s per route, load driver outside the cap, all responses 2xx",
+    "static": {
+      "home": 1592,
+      "deep_dive": 1885,
+      "portfolio_js": 1851,
+      "woff2": 1811
+    },
+    "proxy": {
+      "home": 405,
+      "portfolio_js": 221,
+      "woff2": 968,
+      "beacon_write": 412
+    },
+    "origin_direct_no_tls": {
+      "home": 468,
+      "deep_dive": 793,
+      "portfolio_js": 280,
+      "woff2": 3374
+    }
+  },
+  "latency_ms": {
+    "static_home_p50": 7.53,
+    "static_home_p95": 24.81,
+    "static_home_p99": 63.55,
+    "proxy_home_p50": 26.51,
+    "proxy_home_p99": 89.2
+  },
+  "memory": {
+    "_method": "cgroup memory.peak after saturating every route",
+    "stack_peak_bytes": 127696896,
+    "ceiling_bytes": 408944640,
+    "oom_kills": 0,
+    "caddy_idle_kb": 50096,
+    "caddy_peak_kb": 65024,
+    "ingest_peak_kb": 84024,
+    "site_binary_idle_kb": 5148,
+    "site_binary_peak_kb": 19208,
+    "_ingest_note": "Measured on the unit cgroup, not the MainPID. granian's supervisor forks a worker and the worker holds the memory; the earlier 34.7 MB figure was the supervisor and never moved under any load. The stack total was always a cgroup measurement and is unaffected."
+  },
+  "build": {
+    "_method": "cold CARGO_TARGET_DIR, --release, -j1, no swap",
+    "at_900mb_ceiling": {
+      "result": "exit 0",
+      "peak_bytes": 490438656,
+      "seconds": 243,
+      "reclaim_events": 0
+    },
+    "at_390mb_ceiling": {
+      "result": "exit 0",
+      "peak_bytes": 408944640,
+      "seconds": 271,
+      "reclaim_events": 782
+    },
+    "note": "memory.peak counts reclaimable page cache, so it is an upper bound on appetite, not a requirement",
+    "target_dir_mb": 218,
+    "binary_bytes_glibc": 5165512,
+    "binary_bytes_musl": 5180320
+  },
+  "payload": {
+    "_method": "every URL the service worker precaches, plus the three woff2 and the worker itself",
+    "cold_visit_requests": 20,
+    "cold_visit_bytes_static": 137943,
+    "cold_visit_bytes_origin": 149605,
+    "portfolio_js_raw": 52858,
+    "portfolio_js_br_precompressed": 14514,
+    "portfolio_js_br_on_the_fly": 17258,
+    "export_bytes": 757760,
+    "precompress_saving_pct": 76.5
+  },
+  "ingest_amplification": {
+    "_method": "largest body each cap accepts, filled with minimal valid events, measured against the written JSONL",
+    "bytes_per_stored_signal": 132.8,
+    "max_events_truncation": 2000,
+    "caps": [
+      {
+        "body_cap": "32KB",
+        "body_bytes": 32761,
+        "events": 2520,
+        "stored_signals": 2000,
+        "stored_bytes": 268890,
+        "amplification": 8.2
+      },
+      {
+        "body_cap": "8KB",
+        "body_bytes": 8191,
+        "events": 630,
+        "stored_signals": 630,
+        "stored_bytes": 83680,
+        "amplification": 10.2
+      },
+      {
+        "body_cap": "4KB",
+        "body_bytes": 4096,
+        "events": 315,
+        "stored_signals": 315,
+        "stored_bytes": 41895,
+        "amplification": 10.2
+      }
+    ]
+  },
+  "service_worker": {
+    "_method": "Chromium via Playwright, caches.keys() then an offline reload",
+    "origin_cache_entries": 0,
+    "static_cache_entries": 15,
+    "static_offline_body_chars": 6311
+  },
+  "test_counts": {
+    "_method": "the suites in this repo and the scratch harnesses that produced these numbers",
+    "edge_static_assertions": 35,
+    "edge_proxy_assertions": 31,
+    "ssh_gate_assertions": 20,
+    "ssh_gate_attacks_refused": 13,
+    "symlink_swap_assertions": 5,
+    "swap_requests_spanning_deploy": 200,
+    "swap_failures": 0,
+    "ingest_app_tests": 13,
+    "python_suite": 1096
+  },
+  "versions": {
+    "caddy": "2.11.4",
+    "caddy_plugin": "github.com/mholt/caddy-ratelimit",
+    "rustc": "1.97.1",
+    "build_host": "Ubuntu 24.04.4, glibc 2.39"
+  },
+  "ingest_lifecycle": {
+    "_method": "systemd socket activation with systemd-socket-proxyd --exit-idle-time, measured via MemoryCurrent",
+    "idle_memory_bytes": 0,
+    "idle_state": "inactive; the socket unit holds the port",
+    "running_memory_kb_range": [
+      76112,
+      84024
+    ],
+    "cold_start_seconds": 1.3,
+    "warm_latency_ms": 19,
+    "exit_idle_time": "5min",
+    "throughput_rps": 887,
+    "memory_high": "96M",
+    "memory_max": "128M",
+    "cpu_quota": "40%",
+    "note": "MemoryHigh below the working set does not shrink the process, it wedges it in reclaim and startup never completes; 48M was tried and the service never became ready."
+  }
+}

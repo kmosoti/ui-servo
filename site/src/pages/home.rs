@@ -61,7 +61,6 @@ fn metric_tile(label: &str, id: &str, value_style: &str) -> Markup {
 #[allow(clippy::too_many_arguments)]
 fn job(
     id: &str,
-    offset: &str,
     company: &str,
     role: &str,
     when: &str,
@@ -73,13 +72,12 @@ fn job(
     html! {
         article class="pf-item" data-item=(id) data-tags=(data_tags)
             style="border-style:solid; border-width:1px; border-color:#24282e; border-radius:8px; background:#101215; opacity:1; transition:opacity .3s, border-color .3s;" {
-            div data-job-toggle=(id) style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;" {
-                span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; border:1px solid #24282e; border-radius:3px; padding:3px 7px; flex-shrink:0;" { (offset) }
+            div class="pf-job-head" data-job-toggle=(id) style="display:flex; align-items:center; gap:16px; padding:18px 20px; cursor:pointer;" {
                 span style="flex:1; min-width:0;" {
                     span style="display:block; font-size:17px; font-weight:700; letter-spacing:-.015em;" { (company) }
                     span style="display:block; font-size:14px; color:#9aa0a7;" { (role) }
                 }
-                span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;" { (when) }
+                span class="pf-job-when" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#9aa0a7; white-space:nowrap;" { (when) }
                 span data-job-icon=(id) style="color:#ff7a45; font-size:15px; flex-shrink:0;" { (if open { "⌄" } else { "›" }) }
             }
             div data-job-body=(id) style=(format!("display:{}; padding:0 20px 22px;", if open { "block" } else { "none" })) {
@@ -131,7 +129,7 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
                 // ---------- hero: the terminal window (direction 1a, made
                 // official by owner ruling 2026-08-09; 1b and its header
                 // toggle are retired) ----------
-                section style="padding:72px 0 48px;" {
+                section class="pf-hero" style="padding:72px 0 48px;" {
                     div style="border:1px solid #24282e; border-radius:10px; background:#101215; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,.45);" {
                         div style="display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid #1b1f24; background:#0c0e11; font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e747b; letter-spacing:.04em;" {
                             span style="width:6px; height:6px; border-radius:50%; background:#ff7a45;" {}
@@ -194,17 +192,17 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
                     }
 
                     div style="display:flex; flex-direction:column; gap:10px;" {
-                        (job("jpmc", "offset 0", "Netbuilder (JPMC LogA Platform)", "Associate Observability Engineer", "Aug 2024 — present",
+                        (job("jpmc", "Netbuilder (JPMC LogA Platform)", "Associate Observability Engineer", "Aug 2024 — present",
                             "Support a centralized, multi-tenant observability platform — Splunk, Logstash, SaltStack, Linux. Work the Kafka → Logstash → Splunk ingestion path: onboarding and sync analysis, stale-topic cleanup, consumer remediation. Automated search-filter updates across 3,000+ Splunk roles in Python, and login-banner orchestration across 100+ search heads in Salt — plus SHC repave design for 15 on-prem nodes. On the reliability side: duplicate-detection to catch config drift before it ships, DR-readiness investigation into cluster-manager failover and NAS bottlenecks, and RCA on farm-break findings down to SELinux-context drift.",
                             &["splunk", "logstash", "kafka", "salt", "python", "linux", "rca", "drift", "ha/dr"],
                             "splunk logstash kafka salt python bash linux rca drift dr red use eda logging", true))
-                        (job("dat", "offset 1", "Data Annotation Tech", "AI Code Evaluation Contractor", "Jan 2024 — present",
+                        (job("dat", "Data Annotation Tech", "AI Code Evaluation Contractor", "Jan 2024 — present",
                             "Evaluate AI-generated code and reasoning — Python, JavaScript, SQL — for correctness, efficiency, maintainability, edge-case handling, and whether it actually did what it was asked. Running in parallel with the day job, not instead of it.",
                             &["ai-eval", "python"], "aieval python", false))
-                        (job("aws", "offset 2", "Amazon Web Services", "Associate Solutions Architect", "Jan 2023 — Nov 2023",
+                        (job("aws", "Amazon Web Services", "Associate Solutions Architect", "Jan 2023 — Nov 2023",
                             "Advised enterprise customers on AWS architecture — availability, security, scalability, performance. Built a cloud-migration cost-estimation tool and a few cloud-native prototypes. Learned the cloud-infrastructure side properly before circling back to observability, which turned out to be the more interesting problem.",
                             &["aws", "terraform"], "aws terraform", false))
-                        (job("ncr", "offset 3", "NCR Voyix / ServiceLink", "Software Engineering Intern & IT Help Desk Support", "early career",
+                        (job("ncr", "NCR Voyix / ServiceLink", "Software Engineering Intern & IT Help Desk Support", "early career",
                             "Two roles that taught the unglamorous fundamentals — Python automation scripts for mobile-testing workflows at NCR Voyix, and web-application, account-access, and SQL-reporting support at ServiceLink. Neither one glamorous. Both load-bearing for everything after.",
                             &["python"], "python", false))
                     }
@@ -286,7 +284,7 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
                             }
                         }
                         div class="pf-item" data-item="sds" data-tags="python splunk red use" style=(CARD) {
-                            div style=(CARD_TOP) { span style=(CARD_NAME) { "splunk-dashboard-studio" } (status_badge("alpha", "warn")) }
+                            div style=(CARD_TOP) { span style=(CARD_NAME) { "splunk-dashboard-studio" } (status_badge("pre-alpha", "warn")) }
                             p style=(CARD_DESC) { "Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4–10.4." }
                             div style="display:flex; gap:14px; align-items:center;" {
                                 a href="/projects/splunk-dashboard-studio" style=(format!("font-family:{MONO}; font-size:12px;")) { "deep-dive →" }
@@ -299,12 +297,12 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
                             a href="https://github.com/kmosoti/PraxisLedger" target="_blank" rel="noopener" style=(format!("font-family:{MONO}; font-size:12px;")) { "view repo →" }
                         }
                         div class="pf-item" data-item="kernform" data-tags="rust python hexagonal scaffolding" style=(CARD) {
-                            div style=(CARD_TOP) { span style=(CARD_NAME) { "Kernform" } (status_badge("alpha", "warn")) }
+                            div style=(CARD_TOP) { span style=(CARD_NAME) { "Kernform" } (status_badge("pre-alpha", "warn")) }
                             p style=(CARD_DESC) { "Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI — successor to an earlier doctrine-notes project, different approach entirely." }
                             span style=(format!("font-family:{MONO}; font-size:12px; color:#6e747b;")) { "private" }
                         }
                         div class="pf-item" data-item="sai" data-tags="python" style=(CARD) {
-                            div style=(CARD_TOP) { span style=(CARD_NAME) { "SAI" } (status_badge("shipped", "ship")) }
+                            div style=(CARD_TOP) { span style=(CARD_NAME) { "SAI" } (status_badge("pre-alpha", "warn")) }
                             p style=(CARD_DESC) { "Agent routing modeled on brain-network dynamics — episodic/semantic memory, async consolidation loop." }
                             span style=(format!("font-family:{MONO}; font-size:12px; color:#6e747b;")) { "private" }
                         }

@@ -47,7 +47,7 @@ pub fn render(state: &AppState) -> Result<Markup, crate::error::RouteError> {
                 (opener("splunk-dashboard-studio"))
                 div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;" {
                     h1 style="margin:0; font-size:clamp(30px,4.4vw,48px); font-weight:800; letter-spacing:-.035em;" { "splunk-dashboard-studio" }
-                    span style=(format!("font-family:{MONO}; font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border:1px solid #f2b134; color:#f2b134; border-radius:4px;")) { "alpha" }
+                    span style=(format!("font-family:{MONO}; font-size:11px; letter-spacing:.06em; text-transform:uppercase; padding:4px 9px; border:1px solid #f2b134; color:#f2b134; border-radius:4px;")) { "pre-alpha" }
                 }
                 p style="margin:20px 0 22px; max-width:720px; font-size:21px; line-height:1.4; color:#ece7dd; text-wrap:pretty;" { "Pydantic 2 compiler for Splunk Dashboard Studio — typed Python in, version-targeted JSON out." }
                 p style="margin:0 0 20px; max-width:720px; font-size:16px; color:#9aa0a7; text-wrap:pretty;" { "Dashboard Studio's JSON is easy to hand-author and easy to get subtly wrong — a typo'd key doesn't fail loudly, it just fails to render, or renders wrong, days later. This compiles a typed model down to the JSON Splunk actually expects, checked twice: once against the typed schema, once against Splunk's own official validator, so drift between the two gets caught instead of shipped." }

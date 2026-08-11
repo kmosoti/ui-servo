@@ -1,0 +1,122 @@
+# /etc/caddy/Caddyfile — ui-servo edge
+#
+# The same file runs in production and on a laptop. Address and origins come
+# from the environment, so what gets tested is literally what gets shipped:
+#
+#   production : SITE_ADDRESS=mosoti.dev, www.mosoti.dev
+#   local test : SITE_ADDRESS=localhost:8443   (Caddy issues an internal cert
+#                                               for localhost automatically)
+{
+	admin off
+	# 80 in production; overridable so the same file can be tested unprivileged.
+	http_port {$HTTP_PORT:80}
+	email {$ACME_EMAIL:admin@mosoti.dev}
+
+	# rate_limit is not a standard directive and has no place in Caddy's
+	# built-in ordering, so it must be given one explicitly or the config is
+	# rejected. Inside the route block below, written order wins anyway.
+	order rate_limit before reverse_proxy
+
+	servers {
+		max_header_size 16KB
+		timeouts {
+			read_body 10s
+			read_header 5s
+			write 30s
+			idle 2m
+		}
+	}
+}
+
+{$SITE_ADDRESS:mosoti.dev} {
+	log {
+		output file {$CADDY_LOG:/var/log/caddy/ui-servo.log} {
+			roll_size 10MB
+			roll_keep 5
+			roll_keep_for 336h
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+		-Server
+	}
+
+	# EVERYTHING below runs in the order written, because it is wrapped in
+	# `route`. Without it Caddy sorts directives by its own built-in precedence,
+	# in which `handle` outranks both `respond` and `rate_limit` -- so a
+	# catch-all `handle` at the bottom of the file answers first and every
+	# refusal above it becomes dead config. That failure is invisible from
+	# outside: the origin returns its own 404 for /.env and its own 405 for PUT,
+	# so a curl check passes while nothing is being blocked at the edge at all.
+	# The only honest test is to kill the origin — the refusals must survive it.
+	route {
+		# ---- 1. shrink the attack surface ------------------------------
+		# Only three verbs exist on this site. Everything else dies here.
+		@bad_method not method GET HEAD POST
+		respond @bad_method "method not allowed" 405
+
+		# Scanners burn origin CPU looking for software that is not here.
+		@probes path /wp-admin* /wp-login.php /xmlrpc.php /.env* /.git/* /.aws/* /vendor/* /phpmyadmin* /phpinfo.php /server-status /actuator/* /.ssh/* /config.json /telescope*
+		respond @probes "not found" 404
+
+		# Declared AI/scraper crawlers. They identify themselves honestly, so
+		# a 403 genuinely stops them — unlike anything aimed at a hostile
+		# client, which simply lies. Search engines are deliberately absent
+		# from this list: blocking Googlebot or Bingbot deindexes the site.
+		@ai_crawlers header_regexp User-Agent "(?i)(GPTBot|ChatGPT-User|OAI-SearchBot|CCBot|ClaudeBot|anthropic-ai|Claude-Web|Bytespider|Amazonbot|FacebookBot|meta-externalagent|Diffbot|ImagesiftBot|Omgilibot|PerplexityBot|Applebot-Extended|cohere-ai)"
+		respond @ai_crawlers "no" 403
+
+		# ---- 2. rate limits, per client IP -----------------------------
+		rate_limit {
+			# Writes are the expensive path: every accepted beacon costs disk.
+			zone beacon {
+				match {
+					method POST
+					path /beacon*
+				}
+				key {remote_host}
+				events {$RL_BEACON:12}
+				window 1m
+			}
+			# Reading. A cold first visit is ~15 requests; a warm one is
+			# near zero because the service worker answers from cache.
+			zone browse {
+				key {remote_host}
+				events {$RL_BROWSE:240}
+				window 1m
+			}
+		}
+
+		# ---- 3. the write endpoint -------------------------------------
+		handle /beacon* {
+			request_body {
+				max_size 32KB
+			}
+			reverse_proxy {$INGEST_ORIGIN:127.0.0.1:8111} {
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# ---- 4. everything else is the site ----------------------------
+		handle {
+			# The origin sets Cache-Control on assets but not on documents.
+			# This is that gap, closed at the edge.
+			@html path / /about /projects/* /writing/*
+			header @html Cache-Control "no-cache"
+
+			reverse_proxy {$SITE_ORIGIN:127.0.0.1:8080}
+		}
+	}
+
+	handle_errors {
+		respond "{err.status_code}" {err.status_code}
+	}
+}

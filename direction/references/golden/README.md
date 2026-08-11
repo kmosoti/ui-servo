@@ -19,6 +19,23 @@ provenance, but where it and the captures disagree, **the captures win**
 
 ## Owner rulings on top of the ancestor file
 
+0. **Small screens are a first-class case** (owner, 2026-08-10). The port
+   shipped with a single width breakpoint and was desktop geometry
+   everywhere else. The three captures here remain 1920px renders — the
+   wide layout is unchanged and they still govern it — but they are no
+   longer the whole specification. Ruled the same day, and visible in the
+   re-captured PNGs:
+
+   | Change | Was | Now |
+   | --- | --- | --- |
+   | Header motion toggle | `motion on` button | removed; reduced motion follows the OS preference and the stored `pf-reduced` key |
+   | Brand mark | 13px text, 7px dot | 17px text, 9px dot |
+   | Experience rows | led with an `offset N` chip | chip removed; date wraps below the role under 900px |
+   | Project statuses | `shipped` / `alpha` | `pre-alpha` — nothing has shipped past it |
+   | BlackCell black hole | hidden below 1150px | always drawn; 430 → 320 → 240px, dimmed, behind the header text |
+   | Header height at 390px | ~290px, three ragged rows | ~112px, two rows with the routes as a scroll strip |
+
+
 1. **Hero = direction 1a** (the terminal window). The ancestor carries a
    second direction (1b) behind a `1a`/`1b` header toggle; both are
    retired. The site serves 1a alone.

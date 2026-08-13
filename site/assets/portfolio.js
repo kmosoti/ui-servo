@@ -40,10 +40,10 @@
     ],
     projects: [
       { name: 'BlackCell', status: 'pre-alpha', summary: 'Local-first, evidence-gated control runtime for coding agents.', url: 'https://github.com/kmosoti/blackcell', tags: ITEM_TAGS.blackcell },
-      { name: 'splunk-dashboard-studio', status: 'alpha', summary: 'Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4-10.4.', url: 'https://github.com/kmosoti/splunk-dashboard-studio-python', tags: ITEM_TAGS.sds },
-      { name: 'Kernform', status: 'alpha', summary: 'Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI.', url: null, tags: ITEM_TAGS.kernform },
+      { name: 'splunk-dashboard-studio', status: 'pre-alpha', summary: 'Pydantic 2 compiler/validator for Splunk Dashboard Studio, version-aware 9.4-10.4.', url: 'https://github.com/kmosoti/splunk-dashboard-studio-python', tags: ITEM_TAGS.sds },
+      { name: 'Kernform', status: 'pre-alpha', summary: 'Deterministic project scaffolding and repo-conformance tool. Rust core, PyO3 bridge, Python SDK/CLI.', url: null, tags: ITEM_TAGS.kernform },
       { name: 'PraxisLedger', status: 'early bootstrap', summary: 'Provenance and temporal knowledge graph. SQLite + Rust + Python.', url: 'https://github.com/kmosoti/PraxisLedger', tags: ITEM_TAGS.praxis },
-      { name: 'SAI', status: 'shipped', summary: 'Agent routing modeled on brain-network dynamics.', url: null, tags: ITEM_TAGS.sai },
+      { name: 'SAI', status: 'pre-alpha', summary: 'Agent routing modeled on brain-network dynamics.', url: null, tags: ITEM_TAGS.sai },
       { name: 'learning-os', status: 'active', summary: 'Adaptive personal-learning app. FastAPI + SQLAlchemy.', url: 'https://github.com/kmosoti/learning-os', tags: ITEM_TAGS.los }
     ],
     skills: {

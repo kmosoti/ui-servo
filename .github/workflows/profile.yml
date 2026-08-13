@@ -1,0 +1,140 @@
+# Refresh kmosoti/kmosoti after ui-servo ships.
+#
+# "A release" for this project is a successful deploy -- there are no tags and
+# no GitHub Releases, and inventing them would add a ceremony nobody performs.
+# So this hangs off the deploy workflow concluding successfully, which is the
+# moment the live site actually changed. `release: published` is wired up too,
+# free of charge, in case tagging starts later.
+name: profile
+
+on:
+  workflow_run:
+    workflows: [deploy]
+    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two of these racing would fight over the same branch of another repository.
+concurrency:
+  group: profile-readme
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # No conclusion gate. Correctness is the live release.json, not the event:
+    # a spurious trigger can only republish what is already serving, which is a
+    # no-op commit. Gating on `success` was worse than useless -- with
+    # verification now running before the ingest sync, a deploy can ship and
+    # verify the site and still conclude `failure` on a later step, and the
+    # profile would then skip an update whose provenance is already live.
+    runs-on: ubuntu-latest
+    steps:
+      # Read provenance off the running site before checking out anything. The
+      # deploy publishes dist/release.json carrying the sha, version and
+      # timestamp it shipped, so every fact below describes what is *serving*
+      # rather than what a workflow_run event says was attempted on a branch.
+      #
+      # That distinction is the whole point. The event's head_sha is the branch
+      # commit, not `inputs.ref`, so a rollback would advertise the wrong
+      # commit; and a deploy whose only job was skipped can still leave the
+      # containing run looking fine, which would pair a stale version with a
+      # commit that never shipped. Neither is reachable when both values come
+      # from the same document fetched off the live site.
+      - name: Read the live release
+        id: live
+        env:
+          SITE_URL: ${{ secrets.DEPLOY_SITE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "::error::DEPLOY_SITE_URL is unset; cannot confirm what is live"
+            exit 1
+          fi
+          if ! body=$(curl -fsS --max-time 20 "$SITE_URL/release.json"); then
+            echo "::warning::$SITE_URL/release.json is not being served yet — the"
+            echo "::warning::site predates release provenance. Deploy once, then this runs."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sha=$(jq -re .sha <<<"$body")
+          version=$(jq -re .version <<<"$body")
+          deployed=$(jq -re .deployed <<<"$body" | cut -dT -f1)
+          case "$sha" in "" | *[!0-9a-fA-F]*) echo "::error::bad sha in release.json: $sha"; exit 1 ;; esac
+          {
+            echo "sha=$sha"; echo "version=$version"; echo "deployed=$deployed"; echo "skip="
+          } >> "$GITHUB_OUTPUT"
+          echo "live: $version at ${sha:0:7}, deployed $deployed"
+
+      # Two checkouts, deliberately. The generator comes from the ref this
+      # workflow is running (it must exist), and the project data comes from
+      # the commit that is actually deployed (it must match the live site).
+      # One checkout cannot be both: rolling back to any commit predating this
+      # tool would replace the workspace with a tree that has no generator, and
+      # the regeneration step would fail after an otherwise clean rollback.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.live.outputs.skip != '1'
+        with:
+          path: tool
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.live.outputs.skip != '1'
+        with:
+          ref: ${{ steps.live.outputs.sha }}
+          path: deployed
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        if: steps.live.outputs.skip != '1'
+        with:
+          enable-cache: true
+
+      - name: Check out the profile repo
+        if: steps.live.outputs.skip != '1'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: kmosoti/kmosoti
+          # A fine-grained PAT scoped to Contents:write on kmosoti/kmosoti and
+          # nothing else. The default GITHUB_TOKEN cannot reach another repo,
+          # and a classic PAT would hand this job every repo the account owns.
+          token: ${{ secrets.PROFILE_README_TOKEN }}
+          path: profile
+          persist-credentials: true
+
+      - name: Regenerate the card and the generated blocks
+        if: steps.live.outputs.skip != '1'
+        env:
+          VERSION: ${{ steps.live.outputs.version }}
+          SHA: ${{ steps.live.outputs.sha }}
+          DEPLOYED: ${{ steps.live.outputs.deployed }}
+        working-directory: tool
+        run: |
+          set -euo pipefail
+          uv run python tools/profile_readme.py \
+            --portfolio ../deployed/site/assets/portfolio.js \
+            --out ../profile \
+            --version "$VERSION" --sha "$SHA" --deployed "$DEPLOYED"
+
+      - name: Commit and push if anything changed
+        if: steps.live.outputs.skip != '1'
+        working-directory: profile
+        env:
+          VERSION: ${{ steps.live.outputs.version }}
+          SHA: ${{ steps.live.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name  "ui-servo[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # No empty commits: the deploy fires on every push to main, and most
+          # of those change nothing the profile shows.
+          if git diff --cached --quiet; then
+            echo "::notice::profile already current for $VERSION"
+            exit 0
+          fi
+          git commit -m "Refresh from ui-servo ${SHA:0:7} (sw $VERSION)
+
+          Generated by ui-servo's profile workflow. Prose outside the
+          <!-- ui-servo:begin:* --> markers is untouched."
+          git push
+          echo "pushed: $(git rev-parse --short HEAD)"

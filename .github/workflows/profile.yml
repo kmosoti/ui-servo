@@ -25,43 +25,65 @@ concurrency:
 
 jobs:
   publish:
-    # A failed deploy must not advertise a release that is not serving.
+    # Skips obviously-pointless runs. It is NOT the correctness boundary --
+    # every published fact is read from the live site below, so even a spurious
+    # trigger can only republish what is already serving, which is a no-op.
     if: >-
       github.event_name != 'workflow_run' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
-        with:
-          enable-cache: true
-
-      # Read what is actually serving rather than what we believe we built. If
-      # the site is unreachable the profile keeps whatever it already says --
-      # a stale card is better than one advertising a release that is not up,
-      # which is the failure this whole workflow exists to prevent.
+      # Read provenance off the running site before checking out anything. The
+      # deploy publishes dist/release.json carrying the sha, version and
+      # timestamp it shipped, so every fact below describes what is *serving*
+      # rather than what a workflow_run event says was attempted on a branch.
+      #
+      # That distinction is the whole point. The event's head_sha is the branch
+      # commit, not `inputs.ref`, so a rollback would advertise the wrong
+      # commit; and a deploy whose only job was skipped can still leave the
+      # containing run looking fine, which would pair a stale version with a
+      # commit that never shipped. Neither is reachable when both values come
+      # from the same document fetched off the live site.
       - name: Read the live release
         id: live
         env:
           SITE_URL: ${{ secrets.DEPLOY_SITE_URL }}
-          EVENT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
           if [ -z "${SITE_URL:-}" ]; then
             echo "::error::DEPLOY_SITE_URL is unset; cannot confirm what is live"
             exit 1
           fi
-          version=$(curl -fsS --max-time 20 "$SITE_URL/sw.js" \
-            | sed -n "s/^var VERSION = '\(.*\)';/\1/p")
-          [ -n "$version" ] || { echo "::error::no VERSION in the live sw.js"; exit 1; }
+          if ! body=$(curl -fsS --max-time 20 "$SITE_URL/release.json"); then
+            echo "::warning::$SITE_URL/release.json is not being served yet — the"
+            echo "::warning::site predates release provenance. Deploy once, then this runs."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sha=$(jq -re .sha <<<"$body")
+          version=$(jq -re .version <<<"$body")
+          deployed=$(jq -re .deployed <<<"$body" | cut -dT -f1)
+          case "$sha" in "" | *[!0-9a-fA-F]*) echo "::error::bad sha in release.json: $sha"; exit 1 ;; esac
           {
-            echo "version=$version"
-            echo "sha=$EVENT_SHA"
-            echo "deployed=$(date -u +%Y-%m-%d)"
+            echo "sha=$sha"; echo "version=$version"; echo "deployed=$deployed"; echo "skip="
           } >> "$GITHUB_OUTPUT"
-          echo "live version $version at ${EVENT_SHA:0:7}"
+          echo "live: $version at ${sha:0:7}, deployed $deployed"
+
+      # Pinned to the deployed commit, not the branch tip: main can advance
+      # while a deploy is queued, and the project table is read from
+      # portfolio.js. Generating it from a newer commit would advertise source
+      # data that is not on the live site.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.live.outputs.skip != '1'
+        with:
+          ref: ${{ steps.live.outputs.sha }}
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        if: steps.live.outputs.skip != '1'
+        with:
+          enable-cache: true
 
       - name: Check out the profile repo
+        if: steps.live.outputs.skip != '1'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: kmosoti/kmosoti
@@ -73,6 +95,7 @@ jobs:
           persist-credentials: true
 
       - name: Regenerate the card and the generated blocks
+        if: steps.live.outputs.skip != '1'
         env:
           VERSION: ${{ steps.live.outputs.version }}
           SHA: ${{ steps.live.outputs.sha }}
@@ -84,6 +107,7 @@ jobs:
             --version "$VERSION" --sha "$SHA" --deployed "$DEPLOYED"
 
       - name: Commit and push if anything changed
+        if: steps.live.outputs.skip != '1'
         working-directory: profile
         env:
           VERSION: ${{ steps.live.outputs.version }}

@@ -161,3 +161,48 @@ def test_writes_then_check_passes_and_a_stale_copy_fails(tmp_path: Path) -> None
     (tmp_path / "README.md").write_text("tampered\n<!-- ui-servo:begin:projects -->\n"
                                         "<!-- ui-servo:end:projects -->\n")
     assert pr.main([*args, "--check"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# the release.json contract, which spans two workflow files
+# --------------------------------------------------------------------------- #
+
+WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+
+
+def test_the_profile_reads_only_fields_the_deploy_writes() -> None:
+    """`dist/release.json` is written by deploy.yml and read by profile.yml.
+
+    Nothing else couples those two files, so a rename in one is invisible to
+    the other until a deploy publishes a profile that says `null`. This is the
+    same class of bug as the runbook quoting a config it no longer matched --
+    two copies of one fact, no gate between them.
+    """
+    deploy = (WORKFLOWS / "deploy.yml").read_text(encoding="utf-8")
+    profile = (WORKFLOWS / "profile.yml").read_text(encoding="utf-8")
+
+    written = set(re.findall(r"(\w+):\$\w+", deploy))
+    assert written, "deploy.yml no longer builds release.json with jq -n"
+    read = set(re.findall(r"jq -re \.(\w+)", profile))
+    assert read, "profile.yml no longer reads release.json"
+    assert read <= written, f"profile.yml reads fields deploy.yml never writes: {read - written}"
+
+
+def test_the_deploy_records_the_dispatched_ref_not_the_branch_head() -> None:
+    """Rollback goes out via workflow_dispatch with `inputs.ref`. If provenance
+    recorded the branch head instead, a rollback would serve the old build and
+    advertise the new commit."""
+    deploy = (WORKFLOWS / "deploy.yml").read_text(encoding="utf-8")
+    block = deploy[deploy.index("Record the version being shipped"):]
+    block = block[: block.index("- name:", 10)]
+    assert "inputs.ref ||" in block, "release.json does not prefer the dispatched ref"
+
+
+def test_the_profile_never_reads_the_sha_from_the_event() -> None:
+    """The whole point of release.json: an event describes an attempt on a
+    branch, the artifact describes what is serving."""
+    profile = (WORKFLOWS / "profile.yml").read_text(encoding="utf-8")
+    body = profile[profile.index("steps:"):]
+    assert "workflow_run.head_sha" not in body, (
+        "profile.yml is back to trusting the event payload for the deployed sha"
+    )

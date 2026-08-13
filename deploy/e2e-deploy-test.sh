@@ -131,6 +131,30 @@ docker exec "$NAME" sh -c 'test -f /opt/ui-servo/app/direction/direction.toml' \
 	&& ok "direction/direction.toml reached the droplet" \
 	|| bad "direction/direction.toml missing"
 
+# A refused or failed transfer must never be mistaken for "nothing to do".
+# deploy.yml captures rsync's status BEFORE filtering, because piping into grep
+# and ending the pipeline with `|| true` swallows the failure and an empty
+# result then reads as "already current" -- green step, stale droplet. This
+# reproduces that shape against a destination the gate refuses.
+set +e
+out=$(timeout 60 rsync -azi --chmod=D755,F644 ui_servo \
+	"deploy@127.0.0.1:/opt/ui-servo/nope/" 2>&1)
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+	ok "a refused ingest rsync reports a nonzero status"
+else
+	bad "a refused ingest rsync exited 0"
+fi
+# And the shape that made it dangerous: the original pipeline captured stdout
+# only, so a failure left NOTHING to filter and the result was indistinguishable
+# from a droplet that needed no work.
+naive=$(timeout 60 rsync -azi --chmod=D755,F644 ui_servo \
+	"deploy@127.0.0.1:/opt/ui-servo/nope/" 2>/dev/null | grep -Ev '^\.d\.\.t|^$' || true)
+[ -z "$naive" ] \
+	&& ok "...and unchecked, that failure is indistinguishable from 'no work'" \
+	|| bad "expected the naive pipeline to yield empty output on failure"
+
 # Rollback: nothing staged, but the release is still on disk.
 $SSH deploy@127.0.0.1 "ui-servo-activate $SHA" >/dev/null 2>&1 \
 	&& ok "re-activating an on-disk release (rollback) works" \

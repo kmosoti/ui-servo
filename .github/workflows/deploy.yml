@@ -181,9 +181,25 @@ jobs:
           # -i prints a line per item it actually changes and nothing for items
           # already identical, so an unchanged droplet costs one rsync and no
           # restart. Directory-mtime-only lines are noise and are filtered.
-          changed=$(rsync -azi --delete --exclude '.venv' --chmod=D755,F644 \
+          # rsync's status is captured before anything filters it. Piping
+          # straight into grep and ending with `|| true` swallows a failed
+          # transfer -- an unreachable host, a gate refusal, a full disk -- and
+          # an empty result then reads as "already current", so the step goes
+          # green while the droplet is stale or half-written. Only grep's
+          # no-match status is tolerable here, and only after rsync is known
+          # to have succeeded.
+          set +e
+          out=$(rsync -azi --delete --exclude '.venv' --chmod=D755,F644 \
             ui_servo probe direction pyproject.toml uv.lock \
-            "$USER@$HOST:/opt/ui-servo/app/" | grep -Ev '^\.d\.\.t|^$' || true)
+            "$USER@$HOST:/opt/ui-servo/app/" 2>&1)
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            printf '%s\n' "$out"
+            echo "::error::ingest rsync failed (rsync exit $rc); the droplet may be stale"
+            exit "$rc"
+          fi
+          changed=$(printf '%s\n' "$out" | grep -Ev '^\.d\.\.t|^$' || true)
           if [ -z "$changed" ]; then
             echo "ingest already current; leaving the service alone"
             exit 0

@@ -22,7 +22,7 @@ promoted into `site/promoted/<part>.html` — against `direction/direction.toml`
 
 Not the untouched skeleton. If the promoted fragments are not in place, you are looking at
 placeholder content and there are no seams to find yet; say so and stop rather than
-reviewing the wrong artefact. The home page falls back to the built-in placeholder when a
+reviewing the wrong artefact. The homhttps://kennedy.mosoti.dev/e page falls back to the built-in placeholder when a
 part has not been promoted, so an unpromoted page looks plausible and will waste your
 review — check the fragment files exist before you start. Individual promoted fragments are
 served at `/fragments/promoted/{part}` if you need to isolate one.

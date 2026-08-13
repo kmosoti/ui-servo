@@ -224,6 +224,26 @@ in the Caddyfile — those two set the ceiling on how fast anyone can fill the
 disk. The [explanation](../docs/explanation/deployment-architecture.md) has the
 arithmetic.
 
+## Update the droplet's helper scripts
+
+`cloud-init.sh` installs the `/usr/local/bin/ui-servo-*` helpers **once**, at
+provisioning. Editing them here changes nothing on a droplet that already
+exists — the deploy uploads only the site and the ingest app, and the SSH gate
+runs whatever copy was installed. That is how a droplet kept running
+`uv sync --frozen` after `--no-dev` had been committed.
+
+```sh
+./deploy/update-helpers.sh admin@142.93.206.223
+```
+
+It compares before installing, so a no-op run changes nothing and says so.
+
+> **This is deliberately not part of the deploy workflow.** The deploy key is
+> pinned to a forced command precisely so CI cannot run arbitrary code as
+> `deploy`; a workflow step that rewrote `/usr/local/bin` could replace
+> `ui-servo-ssh-gate` itself, which is the file the whole arrangement rests on.
+> Helper updates are an administrator action, over the admin account.
+
 ## Rotate the deploy key
 
 ```sh
@@ -306,6 +326,7 @@ curl -sI https://<domain>/ | head -1
 | `ui-servo-ingest-backend.service` | `/etc/systemd/system/` | the app; started on demand, stops with the proxy |
 | `precompress.py` | run in CI | `.br` siblings at quality 11 |
 | `e2e-deploy-test.sh` | run in CI + locally | boots a droplet-shaped container and runs the deploy path through a real sshd |
+| `update-helpers.sh` | run by an admin | refreshes the installed `/usr/local/bin` helpers and systemd units |
 | `gen-reference.py` + `measurements.json` | run locally / in CI | generates the reference doc |
 
 ## Setting it up by hand

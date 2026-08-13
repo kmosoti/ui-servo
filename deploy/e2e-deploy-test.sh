@@ -109,9 +109,27 @@ check "the shipped bytes are live" "$served" "var VERSION = 'e2e-1';"
 emptied=$(docker exec "$NAME" sh -c 'ls -A /opt/ui-servo/incoming | wc -l')
 check "incoming/ is emptied for the next deploy" "$emptied" "0"
 
-timeout 120 rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
-	ui_servo probe direction pyproject.toml uv.lock "deploy@127.0.0.1:/opt/ui-servo/app/" >/dev/null 2>&1 \
-	&& ok "rsync of the ingest app is allowed" || bad "rsync into app/ was refused"
+# The deploy decides whether to restart the ingest from rsync's own itemized
+# output, so that output IS the trigger and is worth asserting: a first sync
+# must report work, and an identical second must report none, or every deploy
+# either restarts the service for nothing or never restarts it at all.
+ingest_rsync() {
+	timeout 120 rsync -azi --delete --exclude '.venv' --chmod=D755,F644 \
+		ui_servo probe direction pyproject.toml uv.lock \
+		"deploy@127.0.0.1:/opt/ui-servo/app/" 2>/dev/null | grep -Ev '^\.d\.\.t|^$' || true
+}
+first=$(ingest_rsync)
+[ -n "$first" ] && ok "rsync of the ingest app is allowed and reports work" \
+	|| bad "rsync into app/ was refused or reported nothing"
+second=$(ingest_rsync)
+[ -z "$second" ] && ok "an unchanged second sync reports no work" \
+	|| bad "unchanged sync still reported $(printf '%s\n' "$second" | wc -l) items"
+docker exec "$NAME" sh -c 'test -f /opt/ui-servo/app/probe/probe.js' \
+	&& ok "probe/probe.js reached the droplet (the wheel force-include)" \
+	|| bad "probe/probe.js missing; the editable build would fail"
+docker exec "$NAME" sh -c 'test -f /opt/ui-servo/app/direction/direction.toml' \
+	&& ok "direction/direction.toml reached the droplet" \
+	|| bad "direction/direction.toml missing"
 
 # Rollback: nothing staged, but the release is still on disk.
 $SSH deploy@127.0.0.1 "ui-servo-activate $SHA" >/dev/null 2>&1 \

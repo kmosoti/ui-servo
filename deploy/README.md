@@ -163,8 +163,9 @@ iterating; an hour is a long time to be stuck with a record you want back.
 
 Push to `main`. That is the whole procedure.
 
-The job only touches the ingest service if `ui_servo/`, `pyproject.toml` or
-`uv.lock` changed; a site-only change restarts nothing.
+The job restarts the ingest only when rsync reports it actually changed
+something on the droplet, so a site-only change restarts nothing — and a
+droplet that is behind for any other reason still gets caught up.
 
 To deploy without pushing — Actions → **deploy** → *Run workflow*, optionally
 with a commit SHA.

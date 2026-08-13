@@ -7,6 +7,10 @@
 # so StopWhenUnneeded would not reap it and it would sit there holding 80 MB.
 set -eu
 cd /opt/ui-servo/app
-uv sync --frozen
+# --no-dev: pytest, ruff and pyyaml have no business on the droplet. The
+# runtime deps still pull playwright and pillow because pyproject declares them
+# as project dependencies rather than extras -- worth splitting, but that is a
+# packaging change with test fallout, not something to do from a deploy script.
+uv sync --frozen --no-dev
 sudo /usr/bin/systemctl stop ui-servo-ingest-backend.service
 echo "ingest updated; next beacon will start it (cold start ~1.3s)"

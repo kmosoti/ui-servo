@@ -70,11 +70,22 @@ jobs:
 
       - name: Record the version being shipped
         id: build
+        env:
+          TARGET_SHA: ${{ inputs.ref || github.event.workflow_run.head_sha || github.sha }}
         run: |
+          set -euo pipefail
           version=$(sed -n "s/^var VERSION = '\(.*\)';/\1/p" dist/sw.js)
           [ -n "$version" ] || { echo "::error::no VERSION stamped in dist/sw.js"; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "shipping service worker version $version"
+          # The artifact carries its own provenance, and anything downstream
+          # reads it from the running site instead of inferring it from a
+          # workflow_run event. An event says what was *attempted* on a branch:
+          # a different fact, and one that diverges on rollback (inputs.ref,
+          # not the branch head) and whenever a job was skipped rather than run.
+          jq -n --arg sha "$TARGET_SHA" --arg version "$version" \
+                --arg deployed "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{sha:$sha, version:$version, deployed:$deployed}' > dist/release.json
+          cat dist/release.json
 
       # ---- authorise ----------------------------------------------------
       - name: Authorise SSH
@@ -160,21 +171,41 @@ jobs:
           USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          # A shallow checkout or a root commit has no HEAD^; deploy rather
-          # than crash, because "cannot tell what changed" should fail safe
-          # toward shipping, not toward a red build.
-          if ! git rev-parse --verify --quiet HEAD^ >/dev/null; then
-            changed=ui_servo/unknown
-          else
-            changed=$(git diff --name-only HEAD^ HEAD)
+          # rsync decides, not `git diff`. The old predicate asked the
+          # repository what changed, which is a guess about the droplet made
+          # from the wrong source of truth -- and it guessed wrong on exactly
+          # the case that mattered: a droplet missing probe/ and direction/
+          # altogether, brought up to date by a commit that touched neither,
+          # so the sync was skipped and the ingest stayed broken.
+          #
+          # -i prints a line per item it actually changes and nothing for items
+          # already identical, so an unchanged droplet costs one rsync and no
+          # restart. Directory-mtime-only lines are noise and are filtered.
+          # rsync's status is captured before anything filters it. Piping
+          # straight into grep and ending with `|| true` swallows a failed
+          # transfer -- an unreachable host, a gate refusal, a full disk -- and
+          # an empty result then reads as "already current", so the step goes
+          # green while the droplet is stale or half-written. Only grep's
+          # no-match status is tolerable here, and only after rsync is known
+          # to have succeeded.
+          set +e
+          out=$(rsync -azi --delete --exclude '.venv' --chmod=D755,F644 \
+            ui_servo probe direction pyproject.toml uv.lock \
+            "$USER@$HOST:/opt/ui-servo/app/" 2>&1)
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            printf '%s\n' "$out"
+            echo "::error::ingest rsync failed (rsync exit $rc); the droplet may be stale"
+            exit "$rc"
           fi
-          if grep -qE '^(ui_servo/|pyproject\.toml|uv\.lock)' <<<"$changed"; then
-            echo "ingest changed; syncing and restarting"
-            rsync -az --delete --exclude '.venv' --chmod=D755,F644 \
-              ui_servo pyproject.toml uv.lock "$USER@$HOST:/opt/ui-servo/app/"
-            # Restarting also rotates the evidence file, because the default
-            # turn id is date-stamped and fixed at startup.
-            ssh "$USER@$HOST" ui-servo-sync-ingest
-          else
-            echo "no ingest changes; leaving the service alone"
+          changed=$(printf '%s\n' "$out" | grep -Ev '^\.d\.\.t|^$' || true)
+          if [ -z "$changed" ]; then
+            echo "ingest already current; leaving the service alone"
+            exit 0
           fi
+          printf '%s\n' "$changed" | head -20
+          echo "ingest changed; restarting"
+          # Restarting also rotates the evidence file, because the default
+          # turn id is date-stamped and fixed at startup.
+          ssh "$USER@$HOST" ui-servo-sync-ingest

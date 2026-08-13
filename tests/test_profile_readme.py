@@ -206,3 +206,57 @@ def test_the_profile_never_reads_the_sha_from_the_event() -> None:
     assert "workflow_run.head_sha" not in body, (
         "profile.yml is back to trusting the event payload for the deployed sha"
     )
+
+
+def test_the_project_data_can_come_from_another_checkout(tmp_path: Path) -> None:
+    """The workflow runs the generator from the current ref but reads
+    portfolio.js from the DEPLOYED one, so a rollback advertises what that
+    release actually contained. Uses a real older commit rather than a fixture,
+    because the point is that history parses."""
+    import subprocess
+
+    old = subprocess.run(
+        ["git", "show", "a5a3e71:site/assets/portfolio.js"],
+        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+    )
+    if old.returncode != 0:
+        pytest.skip("commit a5a3e71 not present in this clone")
+    js = tmp_path / "portfolio.js"
+    js.write_text(old.stdout, encoding="utf-8")
+
+    then = {p.name: p.status for p in pr.read_projects(js)}
+    now = {p.name: p.status for p in pr.read_projects()}
+    assert then["SAI"] == "shipped", "the older commit should still say shipped"
+    assert now["SAI"] == "pre-alpha", "the current tree should not"
+
+
+def test_the_workflow_keeps_the_generator_and_the_data_separate() -> None:
+    """One checkout cannot be both: rolling back to a commit that predates this
+    tool would replace the workspace with a tree that has no generator."""
+    import yaml
+
+    steps = yaml.safe_load((WORKFLOWS / "profile.yml").read_text())["jobs"]["publish"]["steps"]
+    checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
+    paths = {s.get("with", {}).get("path") for s in checkouts}
+    assert {"tool", "deployed"} <= paths, f"expected split checkouts, got {paths}"
+
+    deployed = next(s for s in checkouts if s["with"].get("path") == "deployed")
+    assert "steps.live.outputs.sha" in str(deployed["with"]["ref"]), (
+        "the data checkout is not pinned to the deployed sha"
+    )
+    tool = next(s for s in checkouts if s["with"].get("path") == "tool")
+    assert "ref" not in tool.get("with", {}), (
+        "the generator checkout must follow the workflow's own ref, not the deployed one"
+    )
+
+
+def test_publication_is_not_gated_on_the_deploy_workflows_conclusion() -> None:
+    """Verification runs before the ingest sync, so a deploy can ship and
+    verify the site and still conclude `failure` on a later step. Gating on
+    `success` would skip an update whose provenance is already live."""
+    import yaml
+
+    job = yaml.safe_load((WORKFLOWS / "profile.yml").read_text())["jobs"]["publish"]
+    assert "conclusion" not in str(job.get("if", "")), (
+        "publication is gated on the deploy workflow's conclusion again"
+    )

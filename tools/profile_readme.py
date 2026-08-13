@@ -293,6 +293,13 @@ def apply_blocks(readme: str, blocks: dict[str, str]) -> tuple[str, set[str]]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--readme", type=Path, help="existing profile README to update")
+    ap.add_argument(
+        "--portfolio", type=Path, default=PORTFOLIO_JS,
+        help="portfolio.js to read the project list from. The workflow points "
+             "this at a checkout of the DEPLOYED commit while running the "
+             "generator from the current one -- a rollback target may predate "
+             "this tool existing, and a single checkout would delete it.",
+    )
     ap.add_argument("--out", type=Path, help="directory to write README.md and the SVG into")
     ap.add_argument("--svg-path", default="assets/ui-servo-console.svg")
     ap.add_argument("--version", default="dev", help="service-worker version being shipped")
@@ -302,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     deployed = args.deployed or dt.datetime.now(dt.UTC).strftime("%Y-%m-%d")
-    projects = read_projects()
+    projects = read_projects(args.portfolio)
     svg = render_svg(args.version, deployed, projects)
     blocks = render_blocks(args.version, deployed, args.sha, projects, args.svg_path)
 

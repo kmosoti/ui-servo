@@ -25,12 +25,12 @@ concurrency:
 
 jobs:
   publish:
-    # Skips obviously-pointless runs. It is NOT the correctness boundary --
-    # every published fact is read from the live site below, so even a spurious
-    # trigger can only republish what is already serving, which is a no-op.
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
+    # No conclusion gate. Correctness is the live release.json, not the event:
+    # a spurious trigger can only republish what is already serving, which is a
+    # no-op commit. Gating on `success` was worse than useless -- with
+    # verification now running before the ingest sync, a deploy can ship and
+    # verify the site and still conclude `failure` on a later step, and the
+    # profile would then skip an update whose provenance is already live.
     runs-on: ubuntu-latest
     steps:
       # Read provenance off the running site before checking out anything. The
@@ -69,14 +69,21 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "live: $version at ${sha:0:7}, deployed $deployed"
 
-      # Pinned to the deployed commit, not the branch tip: main can advance
-      # while a deploy is queued, and the project table is read from
-      # portfolio.js. Generating it from a newer commit would advertise source
-      # data that is not on the live site.
+      # Two checkouts, deliberately. The generator comes from the ref this
+      # workflow is running (it must exist), and the project data comes from
+      # the commit that is actually deployed (it must match the live site).
+      # One checkout cannot be both: rolling back to any commit predating this
+      # tool would replace the workspace with a tree that has no generator, and
+      # the regeneration step would fail after an otherwise clean rollback.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.live.outputs.skip != '1'
+        with:
+          path: tool
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: steps.live.outputs.skip != '1'
         with:
           ref: ${{ steps.live.outputs.sha }}
+          path: deployed
       - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
         if: steps.live.outputs.skip != '1'
         with:
@@ -100,10 +107,12 @@ jobs:
           VERSION: ${{ steps.live.outputs.version }}
           SHA: ${{ steps.live.outputs.sha }}
           DEPLOYED: ${{ steps.live.outputs.deployed }}
+        working-directory: tool
         run: |
           set -euo pipefail
           uv run python tools/profile_readme.py \
-            --out profile \
+            --portfolio ../deployed/site/assets/portfolio.js \
+            --out ../profile \
             --version "$VERSION" --sha "$SHA" --deployed "$DEPLOYED"
 
       - name: Commit and push if anything changed
